@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: aidev
+          POSTGRES_PASSWORD: aidev
+          POSTGRES_DB: aidev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aidev -d aidev"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check
+        run: uv run pyright
+
+      - name: Unit tests
+        run: uv run pytest
+
+      - name: Enable pgvector
+        # Service containers can't mount infra/postgres/init, so do it here.
+        run: psql -h localhost -U aidev -d aidev -c "CREATE EXTENSION IF NOT EXISTS vector"
+        env:
+          PGPASSWORD: aidev
+
+      - name: Integration tests
+        run: uv run pytest -m integration
