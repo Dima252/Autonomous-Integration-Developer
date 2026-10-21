@@ -17,6 +17,9 @@ from aidev.catalog.store import CatalogStore
 log = logging.getLogger(__name__)
 
 DOWNLOAD_TIMEOUT_S = 120.0
+# Part of the content hash, so changing how specs are parsed re-ingests unchanged specs.
+# Bump it whenever the parser or a profile changes what gets stored.
+CATALOG_FORMAT_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -39,7 +42,7 @@ async def ingest(
     results = []
     for source in sources:
         raw = await fetch_spec(source, cache_dir, client)
-        content_hash = hashlib.sha256(raw).hexdigest()
+        content_hash = hashlib.sha256(b"v%d:" % CATALOG_FORMAT_VERSION + raw).hexdigest()
         if await store.has_spec(source.provider, source.name, content_hash):
             results.append(IngestResult(source, "unchanged"))
             continue

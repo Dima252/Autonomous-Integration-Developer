@@ -75,7 +75,7 @@ class StripeProfile(SpecProfile):
                         },
                     },
                 }
-            description = f"`data.object` is a `{resource}` object." if resource else None
+            description = f"`data.object` holds the `{resource}` object." if resource else None
             events.append(
                 WebhookEvent(
                     name=name,

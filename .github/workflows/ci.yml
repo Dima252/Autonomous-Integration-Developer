@@ -48,12 +48,6 @@ jobs:
       - name: Unit tests
         run: uv run pytest
 
-      - name: Enable pgvector
-        # Service containers can't mount infra/postgres/init, so do it here.
-        run: psql -h localhost -U aidev -d aidev -c "CREATE EXTENSION IF NOT EXISTS vector"
-        env:
-          PGPASSWORD: aidev
-
       - name: Migrate
         run: uv run alembic upgrade head
 

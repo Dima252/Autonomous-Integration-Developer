@@ -22,6 +22,13 @@ class SpecSummary:
     schemas: int
 
 
+@dataclass(frozen=True)
+class StoredSpec:
+    provider: str
+    name: str
+    spec: ParsedSpec
+
+
 class CatalogStore:
     """Read/write access to the API catalog. Lookups are exact: they answer whether an
     operation, event or schema exists, never what is "similar" (that's the docs index)."""
@@ -156,6 +163,41 @@ class CatalogStore:
         async with self.engine.connect() as conn:
             rows = (await conn.execute(query)).all()
         return [SpecSummary(*row) for row in rows]
+
+    async def load_specs(self) -> list[StoredSpec]:
+        """Every ingested spec document with its full contents (for building the docs
+        index; lookups should use the targeted methods above)."""
+        async with self.engine.connect() as conn:
+            specs = (await conn.execute(select(api_specs).order_by(api_specs.c.id))).all()
+            children: dict[str, dict[int, list[Any]]] = {}
+            for name, table in (
+                ("operations", api_operations),
+                ("webhook_events", api_webhook_events),
+                ("schemas", api_schemas),
+            ):
+                rows = await conn.execute(
+                    select(table.c.spec_id, table.c.data).order_by(table.c.id)
+                )
+                by_spec: dict[int, list[Any]] = {}
+                for spec_id, data in rows:
+                    by_spec.setdefault(spec_id, []).append(data)
+                children[name] = by_spec
+        return [
+            StoredSpec(
+                provider=s.provider,
+                name=s.name,
+                spec=ParsedSpec(
+                    title=s.title,
+                    api_version=s.api_version,
+                    spec_format=s.spec_format,
+                    base_urls=s.base_urls,
+                    operations=children["operations"].get(s.id, []),
+                    webhook_events=children["webhook_events"].get(s.id, []),
+                    schemas=children["schemas"].get(s.id, []),
+                ),
+            )
+            for s in specs
+        ]
 
     async def _first(self, query: Any) -> Any:
         async with self.engine.connect() as conn:
