@@ -42,9 +42,11 @@ class AnthropicLLM:
                 async for text in stream.text_stream:
                     yield TextDelta(text)
                 message = await stream.get_final_message()
+                request_id = stream.request_id
         except anthropic.APIError as exc:
             raise _error(exc) from exc
-        yield _completion(message)
+        # The streamed message carries no request id of its own; the stream does.
+        yield _completion(message, request_id)
 
     async def parse[T: BaseModel](
         self, request: LLMRequest, schema: type[T]
@@ -83,7 +85,7 @@ def _params(request: LLMRequest) -> dict[str, Any]:
     return params
 
 
-def _completion(message: Message) -> Completion:
+def _completion(message: Message, request_id: str | None = None) -> Completion:
     u = message.usage
     cache_writes = u.cache_creation
     write_1h = cache_writes.ephemeral_1h_input_tokens if cache_writes else 0
@@ -99,7 +101,7 @@ def _completion(message: Message) -> Completion:
             cache_write_1h_tokens=write_1h,
         ),
         stop_reason=message.stop_reason,
-        request_id=message._request_id,
+        request_id=request_id or getattr(message, "_request_id", None),
     )
 
 

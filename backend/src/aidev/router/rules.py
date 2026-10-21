@@ -95,6 +95,13 @@ def _sequence(classes: list[str]) -> re.Pattern[str]:
 
 _ANY = _sequence(list(_PHRASES))
 _NO_ACK = _sequence([c for c in _PHRASES if c != "ack"])
+# The class of a message's last phrase, which is what a reply should answer: "thanks,
+# bye" is a farewell. Checked in this order where phrases overlap.
+_ENDINGS = {
+    c: re.compile(rf"(?:^| )(?:{'|'.join(_PHRASES[c])})(?: {_FILLER})*$")
+    for c in ("farewell", "thanks", "greeting", "smalltalk", "ack")
+}
+RULE_CLASSES = (*_ENDINGS, "no_words")
 # Messages over this length are never small talk by rule, whatever they contain.
 MAX_CHARS = 60
 
@@ -106,7 +113,7 @@ def normalize(text: str) -> str:
 
 
 def match_smalltalk(text: str, context: RouteContext) -> str | None:
-    """The rule that matched, or None."""
+    """The class of small talk (one of RULE_CLASSES), or None."""
     if len(text) > MAX_CHARS:
         return None
     norm = normalize(text)
@@ -114,6 +121,6 @@ def match_smalltalk(text: str, context: RouteContext) -> str | None:
         # Only emoji or punctuation ("🙂", "!!"). After a question, "👍" is an answer.
         return "no_words" if text.strip() and not context.awaiting_answer else None
     pattern = _NO_ACK if context.awaiting_answer else _ANY
-    if pattern.fullmatch(norm):
-        return "phrases"
-    return None
+    if not pattern.fullmatch(norm):
+        return None
+    return next(c for c, ending in _ENDINGS.items() if ending.search(norm))

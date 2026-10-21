@@ -16,7 +16,7 @@ import logging
 import time
 
 from aidev.llm.client import LLMClient
-from aidev.llm.types import LLMError
+from aidev.llm.types import BudgetExceededError, LLMError
 from aidev.rag.embeddings import EmbeddingServiceError
 from aidev.router.classifier import classify
 from aidev.router.intents import Intent, RouteContext, RouteDecision
@@ -61,7 +61,7 @@ class Router:
     async def _route(self, text: str, context: RouteContext) -> RouteDecision:
         rule = match_smalltalk(text, context)
         if rule is not None:
-            return RouteDecision(Intent.CHITCHAT, 1.0, tier=0, reason=f"rule: {rule}")
+            return RouteDecision(Intent.CHITCHAT, 1.0, tier=0, reason=f"rule: {rule}", rule=rule)
 
         if self.examples is None or context.awaiting_answer:
             return await self._classify(text, context)
@@ -92,7 +92,12 @@ class Router:
             log.warning("router classifier failed: %s", exc)
             # No safe guess exists without the classifier; the chat layer explains.
             return RouteDecision(
-                Intent.CLARIFY, 0.0, tier=1, reason=f"classifier failed: {exc}", degraded=True
+                Intent.CLARIFY,
+                0.0,
+                tier=1,
+                reason=f"classifier failed: {exc}",
+                degraded=True,
+                budget_exceeded=isinstance(exc, BudgetExceededError),
             )
 
     def _shadow(self, task: asyncio.Task[RouteDecision], text: str) -> None:

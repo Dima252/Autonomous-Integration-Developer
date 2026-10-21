@@ -10,7 +10,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_ready_when_services_are_up() -> None:
-    with TestClient(create_app()) as client:
+    with TestClient(create_app(services=None)) as client:
         resp = client.get("/ready")
 
     assert resp.status_code == 200

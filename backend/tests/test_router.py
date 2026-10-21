@@ -47,7 +47,12 @@ def test_acknowledgements_after_a_question_are_answers() -> None:
 
 def _classifier(intent: str, confidence: float = 0.9, systems: list[str] | None = None):
     def parsed(_: LLMRequest) -> dict[str, object]:
-        return {"intent": intent, "confidence": confidence, "systems": systems or []}
+        return {
+            "intent": intent,
+            "confidence": confidence,
+            "systems": systems or [],
+            "search_query": "",
+        }
 
     return FakeLLM(parsed=parsed)
 

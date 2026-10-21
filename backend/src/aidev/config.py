@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     anthropic_monthly_usd_cap: float = 5.0
     voyage_monthly_token_cap: int = 30_000_000
 
+    # Chat API
+    chat_rate_limit_per_minute: int = 20  # per client IP
+    max_message_chars: int = 4000
+    # Browser origins allowed to call the API directly (the dev UI). In production the
+    # UI and API share an origin behind the reverse proxy.
+    cors_origins: list[str] = ["http://localhost:3000"]
+
 
 @lru_cache
 def get_settings() -> Settings:

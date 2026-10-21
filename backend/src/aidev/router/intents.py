@@ -48,3 +48,6 @@ class RouteDecision:
     cost_usd: float = 0.0
     latency_ms: float = 0.0
     degraded: bool = False  # the classifier failed and this is the safe default
+    budget_exceeded: bool = False  # it failed because the monthly spend cap is reached
+    search_query: str | None = None  # docs questions, rewritten to stand alone
+    rule: str | None = None  # which tier 0 rule answered (rules.RULE_CLASSES)
