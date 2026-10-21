@@ -1,5 +1,5 @@
-# Backing services for local development. The Python backend runs natively
-# (uv) so local embedding models can use the GPU without Docker passthrough.
+# Backing services for local development. The backend (uv) and the UI (npm) run
+# natively for fast reloads; the deployment adds their containers (Phase 2d).
 services:
   postgres:
     image: pgvector/pgvector:pg17

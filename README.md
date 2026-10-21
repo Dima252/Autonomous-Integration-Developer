@@ -8,20 +8,19 @@ pass. You watch every step stream live.
 
 > **Status:** Phase 2 in progress. Done: the LLM layer with spend caps, the two-tier
 > router, the streaming chat API (small talk, cited docs answers, run events) and the
-> mission-control UI. Next: the first deploy.
+> mission-control UI. Next: the first deploy. See the [roadmap](#roadmap).
 
 ![Mission control: chat on the left; on the right the agent graph mid-run, with the
 validator failed and the diagnostician working on the fix](docs/images/mission-control.png)
 
 <sub>The UI playing its scripted sample run. The agents that produce real runs are Phase
 3; the UI already renders their [event contract](docs/ui-events.md).</sub>
-> See the [roadmap](#roadmap).
 
 ## How it works
 
 ```
 Chat UI ──► Router ──► chit-chat ─────────► fast, cheap reply (no agents)
-               │
+               ├────► docs question ─────► one search + a cited answer (no agents)
                └────► integration task ──► LangGraph run (streamed to the UI)
                         analyst (clarify / assume) → architect (decisions + info needs)
                         → researchers (RAG, per provider, parallel)
@@ -72,12 +71,12 @@ Full design docs:
 | Retrieval | Postgres + pgvector, full-text search, Voyage AI embeddings + reranker |
 | Events / queue | Redis 7 (Streams, Arq) |
 | Sandbox | Docker (no network) + Prism mock servers from OpenAPI specs |
-| Frontend | Next.js, TypeScript, Tailwind, shadcn/ui, Monaco |
+| Frontend | Next.js, TypeScript, Tailwind, React Flow, Monaco, Motion |
 | Observability | Langfuse, OpenTelemetry |
 
 ## Quickstart
 
-Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/).
+Prerequisites: Docker Desktop, [uv](https://docs.astral.sh/uv/), Node.js 24 (for the UI).
 
 ```bash
 cp .env.example .env
@@ -122,13 +121,16 @@ cd backend
 uv run ruff check . && uv run ruff format --check . && uv run pyright
 uv run pytest                        # unit tests
 uv run pytest -m integration         # needs docker compose up
+
+cd ../frontend
+npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 ## Roadmap
 
 - [x] **Phase 0: Foundation.** Repo layout, Docker services, health/readiness, CI
 - [x] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, search, retrieval eval
-- [ ] **Phase 2: Chat + first deploy.** Router, chat path, SSE event bus, minimal UI.
+- [ ] **Phase 2: Chat + first deploy.** Router, chat path, SSE event bus, the UI.
   Deployed to a VM with HTTPS and continuous deployment from day one.
   - [x] LLM layer with hard monthly spend caps; two-tier router and its eval (ADR 012, 013)
   - [x] Chat API: template and model replies, cited docs answers, run events over
