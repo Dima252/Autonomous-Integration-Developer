@@ -24,19 +24,57 @@ CANDIDATES = 50  # per retriever, and the most the reranker sees
 RRF_K = 60  # standard constant from the RRF paper; damps the weight of top ranks
 HNSW_EF_SEARCH = 100
 
-# The query's lexemes are OR-ed: AND semantics (plainto/websearch_to_tsquery) match
-# nothing for most natural-language questions. Lexemes come out of the 'english' config
-# already stemmed, so they're matched verbatim with 'simple'. ts_rank normalization 1
-# divides by log(document length), the closest built-in to BM25's length penalty.
-_BM25_SQL = """
+# Okapi BM25 in plain SQL. Postgres' built-in ts_rank has no IDF, so words like
+# "webhook" that appear in thousands of chunks swamp the rare words that matter; on
+# the golden set true BM25 lifted Hit@8 from 0.70 to 0.76 and MRR from 0.54 to 0.65.
+# - The query's lexemes are OR-ed: AND semantics (plainto/websearch_to_tsquery) match
+#   nothing for most natural-language questions. They come out of the 'english' config
+#   already stemmed, so they're matched verbatim with 'simple'.
+# - Document frequencies are counted per query lexeme through the GIN index.
+# - Term frequency counts breadcrumb occurrences (weight A) three times, a BM25F-style
+#   field boost: a page or section *about* a term beats one that mentions it.
+# - Document length is the distinct-lexeme count, which Postgres keeps in the tsvector;
+#   exact token counts cost 4x the latency for a one-case difference on the golden set.
+BM25_K1 = 1.2
+BM25_B = 0.75
+BREADCRUMB_BOOST = 2
+
+_BM25_SQL = f"""
 WITH q AS (
-    SELECT to_tsquery('simple', string_agg(quote_literal(lexeme), ' | ')) AS query
+    SELECT DISTINCT lexeme
     FROM unnest(tsvector_to_array(to_tsvector('english', :query))) AS lexeme
+),
+tsq AS (
+    SELECT to_tsquery('simple', string_agg(quote_literal(lexeme), ' | ')) AS query FROM q
+),
+stats AS (
+    SELECT count(*)::float AS n, avg(length(search_vector))::float AS avg_len FROM doc_chunks
+),
+idf AS (
+    SELECT q.lexeme, ln(1 + (stats.n - df.n + 0.5) / (df.n + 0.5)) AS idf
+    FROM q, stats, LATERAL (
+        SELECT count(*)::float AS n FROM doc_chunks
+        WHERE search_vector @@ to_tsquery('simple', quote_literal(q.lexeme))
+    ) df
+),
+terms AS (
+    SELECT c.id, length(c.search_vector)::float AS len, idf.idf,
+           cardinality(u.positions)
+             + {BREADCRUMB_BOOST} * (SELECT count(*) FROM unnest(u.weights) w WHERE w = 'A')
+             AS tf
+    FROM doc_chunks c
+    CROSS JOIN tsq
+    CROSS JOIN LATERAL unnest(c.search_vector) u
+    JOIN idf ON idf.lexeme = u.lexeme
+    WHERE c.search_vector @@ tsq.query{{filters}}
 )
-SELECT c.id
-FROM doc_chunks c, q
-WHERE c.search_vector @@ q.query{filters}
-ORDER BY ts_rank(c.search_vector, q.query, 1) DESC, c.id
+SELECT t.id
+FROM terms t, stats
+GROUP BY t.id, t.len, stats.avg_len
+ORDER BY sum(
+    t.idf * t.tf * ({BM25_K1} + 1)
+    / (t.tf + {BM25_K1} * (1 - {BM25_B} + {BM25_B} * t.len / stats.avg_len))
+) DESC, t.id
 LIMIT :limit
 """
 

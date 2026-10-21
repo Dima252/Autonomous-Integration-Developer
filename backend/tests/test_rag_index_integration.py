@@ -163,3 +163,20 @@ async def test_search_modes_filters_and_rerank(engine: AsyncEngine, provider: st
     assert [h.chunk_id for h in reranked] == [h.chunk_id for h in reversed(plain)]
 
     assert await search.search("zzzz", providers=scoped, mode=SearchMode.BM25) == []
+
+
+async def test_bm25_weighs_rare_terms_above_common_ones(engine: AsyncEngine, provider: str) -> None:
+    # Many chunks say "webhook event"; one says "deduplicate". With IDF, the query's
+    # rare word decides the ranking even though the common words match more often.
+    common = [
+        _doc(provider, f"common-{i}", "Webhook event webhook event webhook event payload.")
+        for i in range(10)
+    ]
+    rare = _doc(provider, "dedupe", "Deduplicate a webhook by its ID.")
+    await DocIndex(engine).sync([*common, rare], "fake-embed", scope=[provider])
+
+    hits = await DocSearch(engine).search(
+        "deduplicate webhook events", providers=[provider], mode=SearchMode.BM25
+    )
+
+    assert hits[0].doc_key == rare.key
