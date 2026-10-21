@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx2
@@ -6,6 +7,7 @@ import pytest
 from pydantic import SecretStr
 
 from aidev.config import Settings
+from aidev.llm.meter import Service, SpendMeter
 from aidev.rag.embeddings import (
     EMBEDDING_DIMENSIONS,
     EmbeddingServiceError,
@@ -19,6 +21,7 @@ from aidev.rag.voyage import (
     VoyageReranker,
     create_voyage,
 )
+from tests.llm_fakes import MemoryLedger
 
 
 class FakeClock:
@@ -197,3 +200,41 @@ async def test_client_retries_connection_errors_and_wraps_the_last_one() -> None
 
     with pytest.raises(EmbeddingServiceError):  # vendor-neutral error type
         await VoyageEmbedder(_client(down, FakeClock()), "voyage-4").embed_query("q")
+
+
+def _metered_client(ledger: MemoryLedger, token_cap: int) -> VoyageClient:
+    ledger.now = datetime(2026, 10, 21, tzinfo=UTC)
+    meter = SpendMeter(ledger, 1.0, token_cap, clock=lambda: datetime(2026, 10, 21, tzinfo=UTC))
+    clock = FakeClock()
+    client = _client(
+        lambda r: httpx2.Response(
+            200, json={**_embeddings_response(r).json(), "usage": {"total_tokens": 600}}
+        ),
+        clock,
+    )
+    client.meter = meter
+    return client
+
+
+async def test_metered_calls_record_the_reported_tokens() -> None:
+    ledger = MemoryLedger()
+    embedder = VoyageEmbedder(_metered_client(ledger, token_cap=10_000), "voyage-4")
+
+    await embedder.embed_query("verify a stripe signature")
+
+    ((_, record),) = ledger.records
+    assert (record.service, record.operation, record.usage.input_tokens) == (
+        Service.VOYAGE,
+        "embeddings",
+        600,
+    )
+
+
+async def test_voyage_cap_raises_an_embedding_error_so_search_degrades() -> None:
+    ledger = MemoryLedger()
+    embedder = VoyageEmbedder(_metered_client(ledger, token_cap=1000), "voyage-4")
+    await embedder.embed_query("first")
+    await embedder.embed_query("second")  # 1200 tokens now, over the cap
+
+    with pytest.raises(EmbeddingServiceError, match="monthly Voyage cap"):
+        await embedder.embed_query("third")

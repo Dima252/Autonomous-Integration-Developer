@@ -8,6 +8,8 @@ from typing import Any
 import httpx2
 
 from aidev.config import Settings
+from aidev.llm.meter import Service, SpendMeter, UsageRecord
+from aidev.llm.types import BudgetExceededError, Usage
 from aidev.rag.embeddings import (
     EMBEDDING_DIMENSIONS,
     EmbeddingServiceError,
@@ -36,14 +38,35 @@ class VoyageClient:
         http: httpx2.AsyncClient,
         limiter: RateLimiter,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        meter: SpendMeter | None = None,
     ) -> None:
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._http = http
         self.limiter = limiter
         self._sleep = sleep
+        self.meter = meter
 
     async def post(self, endpoint: str, payload: dict[str, Any], tokens: int) -> dict[str, Any]:
         """POST with client-side pacing, retrying rate limits and server errors."""
+        if self.meter is not None:
+            try:
+                await self.meter.check(Service.VOYAGE)
+            except BudgetExceededError as exc:
+                # A VoyageError, so search degrades to BM25 instead of failing.
+                raise VoyageError(str(exc)) from exc
+        body = await self._post(endpoint, payload, tokens)
+        if self.meter is not None:
+            used = body.get("usage", {}).get("total_tokens", tokens)
+            # Recorded at $0: Voyage usage is capped in tokens, the unit of its free
+            # allowance (see Settings.voyage_monthly_token_cap).
+            await self.meter.record(
+                UsageRecord(
+                    Service.VOYAGE, payload["model"], endpoint, Usage(input_tokens=used), 0.0
+                )
+            )
+        return body
+
+    async def _post(self, endpoint: str, payload: dict[str, Any], tokens: int) -> dict[str, Any]:
         for attempt in range(MAX_RETRIES + 1):
             await self.limiter.acquire(tokens)
             try:
@@ -139,14 +162,14 @@ class VoyageReranker:
 
 
 def create_voyage(
-    settings: Settings, http: httpx2.AsyncClient
+    settings: Settings, http: httpx2.AsyncClient, meter: SpendMeter | None = None
 ) -> tuple[VoyageEmbedder, VoyageReranker]:
     """Embedder and reranker sharing one rate limiter: the free-tier limits apply to
     the account, not to each endpoint."""
     if settings.voyage_api_key is None:
         raise VoyageError("VOYAGE_API_KEY is not set (see .env.example)")
     limiter = RateLimiter(settings.voyage_rpm, settings.voyage_tpm)
-    client = VoyageClient(settings.voyage_api_key.get_secret_value(), http, limiter)
+    client = VoyageClient(settings.voyage_api_key.get_secret_value(), http, limiter, meter=meter)
     return (
         VoyageEmbedder(client, settings.embedding_model),
         VoyageReranker(client, settings.rerank_model),

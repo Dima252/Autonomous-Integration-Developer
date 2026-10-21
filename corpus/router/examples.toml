@@ -1,0 +1,373 @@
+# Labeled example messages for the router's tier 0 nearest-neighbour stage
+# (backend/src/aidev/router/nearest.py, ADR 012).
+#
+# Tier 0 only ever answers "chitchat". The other intents are here as counterweights: a
+# message is small talk only when its nearest chit-chat example is clearly closer than
+# its nearest example of any other intent. The thresholds are tuned by leave-one-out
+# over this file (`python -m aidev.router tune`). The golden set in
+# corpus/eval/router.toml must not share any message with it.
+
+# --- chitchat: small talk the rules don't cover -------------------------------------
+[[example]]
+text = "what can you do?"
+intent = "chitchat"
+
+[[example]]
+text = "what are you able to help me with"
+intent = "chitchat"
+
+[[example]]
+text = "who built you?"
+intent = "chitchat"
+
+[[example]]
+text = "are you a bot or a person?"
+intent = "chitchat"
+
+[[example]]
+text = "what's your name"
+intent = "chitchat"
+
+[[example]]
+text = "tell me a joke"
+intent = "chitchat"
+
+[[example]]
+text = "tell me something interesting"
+intent = "chitchat"
+
+[[example]]
+text = "i'm bored"
+intent = "chitchat"
+
+[[example]]
+text = "how's your day been"
+intent = "chitchat"
+
+[[example]]
+text = "how's your week going so far?"
+intent = "chitchat"
+
+[[example]]
+text = "what's the weather like today"
+intent = "chitchat"
+
+[[example]]
+text = "do you like music"
+intent = "chitchat"
+
+[[example]]
+text = "what's your favorite programming language"
+intent = "chitchat"
+
+[[example]]
+text = "can you speak french?"
+intent = "chitchat"
+
+[[example]]
+text = "you're really helpful, thank you so much for everything"
+intent = "chitchat"
+
+[[example]]
+text = "that was super useful, appreciate the help"
+intent = "chitchat"
+
+[[example]]
+text = "this is amazing work"
+intent = "chitchat"
+
+[[example]]
+text = "lol that's hilarious"
+intent = "chitchat"
+
+[[example]]
+text = "good morning! how are you today?"
+intent = "chitchat"
+
+[[example]]
+text = "hey, hope you're doing well"
+intent = "chitchat"
+
+[[example]]
+text = "hello! nice to meet you, i'm alex"
+intent = "chitchat"
+
+[[example]]
+text = "i have to go now, talk to you later"
+intent = "chitchat"
+
+[[example]]
+text = "that's all for today, thanks"
+intent = "chitchat"
+
+[[example]]
+text = "never mind"
+intent = "chitchat"
+
+[[example]]
+text = "forget it"
+intent = "chitchat"
+
+[[example]]
+text = "just testing"
+intent = "chitchat"
+
+[[example]]
+text = "are you there?"
+intent = "chitchat"
+
+[[example]]
+text = "what model are you running on"
+intent = "chitchat"
+
+[[example]]
+text = "what is the meaning of life"
+intent = "chitchat"
+
+[[example]]
+text = "recommend a good book"
+intent = "chitchat"
+
+[[example]]
+text = "what time is it"
+intent = "chitchat"
+
+[[example]]
+text = "do you ever dream"
+intent = "chitchat"
+
+[[example]]
+text = "how old are you"
+intent = "chitchat"
+
+[[example]]
+text = "sorry, my mistake"
+intent = "chitchat"
+
+[[example]]
+text = "oops, wrong chat"
+intent = "chitchat"
+
+[[example]]
+text = "i'm just looking around"
+intent = "chitchat"
+
+[[example]]
+text = "happy friday!"
+intent = "chitchat"
+
+[[example]]
+text = "you rock"
+intent = "chitchat"
+
+[[example]]
+text = "i'm learning to code"
+intent = "chitchat"
+
+[[example]]
+text = "what do you think about AI"
+intent = "chitchat"
+
+[[example]]
+text = "write me a poem about the sea"
+intent = "chitchat"
+
+[[example]]
+text = "how does this assistant work?"
+intent = "chitchat"
+
+[[example]]
+text = "is this free to use?"
+intent = "chitchat"
+
+[[example]]
+text = "which integrations do you support?"
+intent = "chitchat"
+
+# --- docs_question ------------------------------------------------------------------
+[[example]]
+text = "how do stripe webhook signatures work?"
+intent = "docs_question"
+
+[[example]]
+text = "what scopes does slack chat.postMessage need?"
+intent = "docs_question"
+
+[[example]]
+text = "what's the rate limit for the github rest api?"
+intent = "docs_question"
+
+[[example]]
+text = "how does pagination work in the hubspot crm api?"
+intent = "docs_question"
+
+[[example]]
+text = "which stripe event fires when a subscription is cancelled?"
+intent = "docs_question"
+
+[[example]]
+text = "what's in the payload of a github pull_request event?"
+intent = "docs_question"
+
+[[example]]
+text = "how do i authenticate to the slack web api?"
+intent = "docs_question"
+
+[[example]]
+text = "what is an idempotency key in stripe?"
+intent = "docs_question"
+
+[[example]]
+text = "how should i retry failed webhook deliveries?"
+intent = "docs_question"
+
+[[example]]
+text = "what does the stripe-signature header contain"
+intent = "docs_question"
+
+[[example]]
+text = "how do i list contacts in hubspot"
+intent = "docs_question"
+
+[[example]]
+text = "what's the difference between a slack bot token and a user token"
+intent = "docs_question"
+
+[[example]]
+text = "how long are github installation tokens valid"
+intent = "docs_question"
+
+[[example]]
+text = "show me how to verify a slack request signature in python"
+intent = "docs_question"
+
+[[example]]
+text = "what fields does a stripe invoice object have"
+intent = "docs_question"
+
+[[example]]
+text = "what is the max page size for stripe list endpoints"
+intent = "docs_question"
+
+[[example]]
+text = "explain oauth for hubspot apps"
+intent = "docs_question"
+
+[[example]]
+text = "what happens if my webhook endpoint returns a 500 to stripe?"
+intent = "docs_question"
+
+[[example]]
+text = "best practice for storing api keys"
+intent = "docs_question"
+
+[[example]]
+text = "how do I handle 429 responses from slack"
+intent = "docs_question"
+
+# --- integration_task ---------------------------------------------------------------
+[[example]]
+text = "write a script that syncs new hubspot contacts into a slack channel"
+intent = "integration_task"
+
+[[example]]
+text = "create a github app that posts a slack message when a pull request is merged"
+intent = "integration_task"
+
+[[example]]
+text = "make a service that creates a hubspot deal when a stripe checkout completes"
+intent = "integration_task"
+
+[[example]]
+text = "generate a fastapi endpoint that receives github push webhooks and logs commit messages"
+intent = "integration_task"
+
+[[example]]
+text = "when a stripe payment fails, open a github issue"
+intent = "integration_task"
+
+[[example]]
+text = "i need a nightly job that exports stripe customers to hubspot"
+intent = "integration_task"
+
+[[example]]
+text = "build a slack bot that answers /refund commands by refunding the stripe charge"
+intent = "integration_task"
+
+[[example]]
+text = "connect github issues to hubspot tickets"
+intent = "integration_task"
+
+[[example]]
+text = "code a stripe webhook handler for invoice.paid"
+intent = "integration_task"
+
+[[example]]
+text = "post a daily summary of open github PRs to slack"
+intent = "integration_task"
+
+[[example]]
+text = "build me a stripe to discord notifier"
+intent = "integration_task"
+
+[[example]]
+text = "i want slack alerts whenever a github action fails"
+intent = "integration_task"
+
+# --- followup_edit ------------------------------------------------------------------
+[[example]]
+text = "actually send it to discord instead of slack"
+intent = "followup_edit"
+
+[[example]]
+text = "also add retries with exponential backoff"
+intent = "followup_edit"
+
+[[example]]
+text = "can you make it only alert for amounts over $500"
+intent = "followup_edit"
+
+[[example]]
+text = "rename the env variable to SLACK_TOKEN"
+intent = "followup_edit"
+
+[[example]]
+text = "add tests for the signature check"
+intent = "followup_edit"
+
+[[example]]
+text = "make it handle refunds too"
+intent = "followup_edit"
+
+[[example]]
+text = "drop the email part"
+intent = "followup_edit"
+
+# --- clarify ------------------------------------------------------------------------
+[[example]]
+text = "can you help me with an integration?"
+intent = "clarify"
+
+[[example]]
+text = "build me something"
+intent = "clarify"
+
+[[example]]
+text = "i need an automation"
+intent = "clarify"
+
+[[example]]
+text = "make my apps talk to each other"
+intent = "clarify"
+
+[[example]]
+text = "fix my webhook"
+intent = "clarify"
+
+[[example]]
+text = "i want to automate my workflow"
+intent = "clarify"
+
+[[example]]
+text = "do the stripe thing"
+intent = "clarify"

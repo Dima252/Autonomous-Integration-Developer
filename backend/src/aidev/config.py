@@ -36,6 +36,16 @@ class Settings(BaseSettings):
     voyage_rpm: int = 3
     voyage_tpm: int = 10_000
 
+    # LLMs (docs/architecture.md §7). "dev" runs Haiku for every role; "final" moves the
+    # reasoning roles and the coder to bigger models for evals and the demo.
+    anthropic_api_key: SecretStr | None = None
+    llm_profile: Literal["dev", "final"] = "dev"
+
+    # Hard monthly spend caps, checked before every paid call (aidev.llm.meter). Voyage
+    # is capped in tokens because its free allowance is denominated in tokens.
+    anthropic_monthly_usd_cap: float = 5.0
+    voyage_monthly_token_cap: int = 30_000_000
+
 
 @lru_cache
 def get_settings() -> Settings:

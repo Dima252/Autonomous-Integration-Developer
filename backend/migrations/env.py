@@ -6,6 +6,7 @@ from sqlalchemy.engine import Connection
 
 # Importing the table modules registers their tables on the shared metadata.
 import aidev.catalog.tables
+import aidev.llm.tables
 import aidev.rag.tables  # noqa: F401
 from aidev.config import get_settings
 from aidev.infra import postgres

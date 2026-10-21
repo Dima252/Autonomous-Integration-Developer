@@ -14,10 +14,12 @@ import sys
 import time
 
 import httpx2
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from aidev.catalog.store import CatalogStore
 from aidev.config import Settings, get_settings
 from aidev.infra import postgres
+from aidev.llm.meter import PostgresLedger, SpendMeter
 from aidev.rag.corpus import build_corpus
 from aidev.rag.documents import DOC_TYPES
 from aidev.rag.eval import (
@@ -61,7 +63,7 @@ async def _embed(settings: Settings, batch_size: int) -> None:
 
     try:
         async with httpx2.AsyncClient() as http:
-            embedder, _ = create_voyage(settings, http)
+            embedder, _ = create_voyage(settings, http, _meter(engine, settings))
             done = await DocIndex(engine).embed_pending(embedder, batch_size, progress)
     finally:
         await engine.dispose()
@@ -89,7 +91,7 @@ async def _search(settings: Settings, args: argparse.Namespace) -> None:
         async with httpx2.AsyncClient() as http:
             embedder = reranker = None
             if args.mode != SearchMode.BM25 or args.rerank:
-                embedder, reranker = create_voyage(settings, http)
+                embedder, reranker = create_voyage(settings, http, _meter(engine, settings))
             search = DocSearch(engine, embedder, reranker)
             hits = await search.search(
                 args.query,
@@ -120,7 +122,7 @@ async def _eval(settings: Settings, args: argparse.Namespace) -> None:
         async with httpx2.AsyncClient() as http:
             embedder = reranker = None
             if any(CONFIGS[n].mode != SearchMode.BM25 for n in names):
-                voyage_embedder, reranker = create_voyage(settings, http)
+                voyage_embedder, reranker = create_voyage(settings, http, _meter(engine, settings))
                 cache = settings.data_dir / "cache" / "eval-query-embeddings.json"
                 embedder = CachedQueryEmbedder(voyage_embedder, cache)
             search = DocSearch(engine, embedder, reranker)
@@ -128,6 +130,10 @@ async def _eval(settings: Settings, args: argparse.Namespace) -> None:
     finally:
         await engine.dispose()
     print(format_report(reports))
+
+
+def _meter(engine: AsyncEngine, settings: Settings) -> SpendMeter:
+    return SpendMeter.from_settings(PostgresLedger(engine), settings)
 
 
 def main() -> None:
