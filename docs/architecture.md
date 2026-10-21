@@ -28,8 +28,8 @@ in [decisions.md](decisions.md).
 ## 1. Overview
 
 ```
-┌──────────────── Next.js chat UI ────────────────┐
-│ chat · live run timeline · code/diff · citations│
+┌────────── Next.js mission-control UI ───────────┐
+│ chat · agent graph · timeline · code · checks   │
 └──────┬──────────────────────────▲───────────────┘
   POST /chat                SSE /runs/{id}/events (resumable)
        ▼                          │
@@ -55,7 +55,7 @@ Components:
 
 | Component | Responsibility |
 |---|---|
-| **Web** (Next.js) | Chat, live run timeline, code viewer with diffs between iterations, citations, assumption ledger |
+| **Web** (Next.js) | Chat with routes and citations; a run workspace with the live agent graph, timeline, code diffs between iterations, checks, sources, and the assumption and decision ledger (ADR 015) |
 | **API gateway** (FastAPI) | Auth, routing, the cheap paths (chit-chat, docs Q&A), run creation, SSE |
 | **Worker** (Arq + LangGraph) | Executes integration runs. A run outlives any single HTTP request. |
 | **Postgres + pgvector** | Docs index, API catalog, LangGraph checkpoints, conversations, long-term memory |
@@ -152,8 +152,8 @@ small *profiles* (`catalog/profiles.py`), so the parser stays provider-agnostic.
   identifiers) with Hit@8, Recall@8 and MRR per configuration
   (`python -m aidev.rag eval`). Results are in ADR 011.
 - **Planned: contextual retrieval.** A small model writes 1–2 sentences situating each
-  guide chunk, through the Batch API. It will be added as an eval ablation once the
-  Anthropic key is in use (Phase 2), and kept only if it measurably helps.
+  guide chunk, through the Batch API. It will be tried as an eval ablation once the
+  golden set is harder (ADR 011), and kept only if it measurably helps.
 
 ### 3.3 Engineering playbook corpus
 A curated set of integration best practices is indexed alongside the vendor docs:
@@ -200,12 +200,12 @@ The diagnose/fix loop that consumes these results is described in the agent doc.
 **Event shape:** one typed envelope for every event:
 
 ```json
-{ "run_id": "…", "seq": 42, "type": "iteration.started", "node": "coder",
-  "label": "Caught missing dependency `stripe`, rewriting…", "data": { } }
+{ "run_id": "…", "seq": 42, "ts": "2026-10-21T12:00:25Z", "type": "iteration.started",
+  "node": "coder", "label": "Caught missing dependency `stripe`, rewriting…", "data": { } }
 ```
 
 **Event types:**
-- `run.started` / `run.completed` / `run.failed`
+- `run.created` / `run.started` / `run.completed` / `run.failed`
 - `step.started` / `step.completed`
 - `clarification.requested`
 - `assumption.recorded`
@@ -235,8 +235,8 @@ client disconnects mid-answer, the partial reply is saved and marked interrupted
 
 The payload of each event type is specified in [ui-events.md](ui-events.md), which
 is what the web UI renders. Finished runs are saved to Postgres for a "replay this run"
-view. Step labels come from
-templates, so they cost nothing. Only diagnosis text is model-written.
+view. Step labels come from templates, so they cost nothing. Only diagnosis text is
+model-written.
 
 ## 6. State and memory
 
@@ -327,7 +327,7 @@ search falls back to BM25. `python -m aidev.llm usage` shows month-to-date spend
 | Retrieval | Postgres 17 + pgvector, Postgres full-text search, Voyage embeddings + reranker |
 | Queue / events | Redis 7, Arq, Redis Streams |
 | Sandbox | Docker (`--network none`), Stoplight Prism |
-| Frontend | Next.js (App Router), TypeScript, Tailwind, shadcn/ui, Zustand, Monaco |
+| Frontend | Next.js (App Router), TypeScript, Tailwind, React Flow, Monaco, Motion |
 | Observability | Langfuse, OpenTelemetry |
 | CI | GitHub Actions |
 
