@@ -6,7 +6,8 @@ alerts Slack for VIP customers"* and it researches the real API docs, writes the
 tests it in a sandbox against mock APIs, and fixes its own mistakes until the checks
 pass. You watch every step stream live.
 
-> **Status:** Phase 1 (RAG) in progress: the API catalog is done. See the [roadmap](#roadmap).
+> **Status:** Phase 1 (RAG) complete: API catalog, docs index, hybrid search and retrieval
+> eval. See the [roadmap](#roadmap).
 
 ## How it works
 
@@ -73,6 +74,9 @@ cd backend
 uv sync
 uv run alembic upgrade head          # create / update the database schema
 uv run python -m aidev.catalog ingest  # load the API catalog (~10 s, downloads ~25 MB once)
+uv run python -m aidev.rag index     # build the docs index (full-text search works now)
+uv run python -m aidev.rag embed     # embed it (needs VOYAGE_API_KEY; resumable)
+uv run python -m aidev.rag search "verify a stripe webhook signature" --provider stripe
 uv run uvicorn aidev.api.main:app --reload
 # http://localhost:8000/health   http://localhost:8000/ready   http://localhost:8000/docs
 ```
@@ -89,22 +93,52 @@ uv run pytest -m integration         # needs docker compose up
 ## Roadmap
 
 - [x] **Phase 0: Foundation.** Repo layout, Docker services, health/readiness, CI
-- [ ] **Phase 1: RAG.** ~~OpenAPI → API catalog~~ ✓, doc chunking, engineering playbook, hybrid search, retrieval eval
-- [ ] **Phase 2: Chat.** Router, chat path, SSE event bus, minimal UI
+- [x] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, hybrid search, retrieval eval
+- [ ] **Phase 2: Chat + first deploy.** Router, chat path, SSE event bus, minimal UI.
+  Deployed to a VM with HTTPS and continuous deployment from day one.
 - [ ] **Phase 3: Agent graph.** analyst → architect → researchers → contract → tests → coder
 - [ ] **Phase 4: Self-healing.** Sandbox, validation pipeline, diagnose/fix loop
-- [ ] **Phase 5: UI.** Run timeline, iteration diff viewer, citations
-- [ ] **Phase 6: Quality.** Memory, tracing, eval harness with ablations, deploy
+- [ ] **Phase 5: UI.** Run timeline, iteration diff viewer, citations, replay of recorded runs
+- [ ] **Phase 6: Quality.** Memory, tracing, eval harness with ablations, public demo hardening
+
+## Deployment
+
+The whole stack runs on one small VM with `docker compose`, the same way it runs locally.
+Platform hosts (Vercel, Render, Railway) can't run the Docker sandbox that executes
+generated code, so a VM is the simplest host that runs everything.
+
+```
+Internet ─► Caddy (automatic HTTPS) ─┬─► Next.js UI
+                                     └─► FastAPI + worker ─┬─► Postgres + pgvector
+                                                           ├─► Redis
+                                                           └─► Docker sandbox + Prism mocks
+```
+
+- **Host:** Oracle Cloud Always Free ARM VM ($0), with a ~€4/month Hetzner VM as the
+  fallback.
+- **Continuous deployment:** on merge to `main`, GitHub Actions builds the images,
+  pushes them to GitHub Container Registry, and redeploys the VM over SSH.
+- **Demo safety:**
+  - **Replay mode by default:** visitors watch real recorded runs stream step by step.
+    No API cost, and nothing can break.
+  - **Live mode behind a passcode,** shared with reviewers.
+  - **Spend limits:** a monthly cap in the Anthropic console, a per-run token and dollar
+    budget, and per-IP rate limits.
+- **Showcase:** a 1–2 minute demo video at the top of this README, the live link, and
+  the eval results.
 
 ## Repository layout
 
 ```
-docs/               Architecture, agent design, decision log
-backend/            Python backend (package: aidev)
-  src/aidev/api/    FastAPI gateway
+docs/                 Architecture, agent design, decision log
+backend/              Python backend (package: aidev)
+  src/aidev/api/      FastAPI gateway
   src/aidev/catalog/  API catalog: OpenAPI parser, provider profiles, store, ingest CLI
-  src/aidev/infra/  Postgres / Redis clients
-  migrations/       Alembic database migrations
-infra/postgres/     DB init scripts (pgvector)
-.github/workflows/  CI
+  src/aidev/rag/      Docs index: corpus, chunking, embeddings, BM25 + vector search, eval
+  src/aidev/infra/    Postgres / Redis clients
+  migrations/         Alembic database migrations
+corpus/playbook/      Engineering playbook (indexed alongside provider docs)
+corpus/eval/          Golden sets for evaluation
+infra/postgres/       DB init scripts (pgvector)
+.github/workflows/    CI
 ```
