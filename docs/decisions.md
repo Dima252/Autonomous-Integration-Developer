@@ -19,6 +19,7 @@ and what it costs us.
 | 012 | Router: rules, then nearest neighbour in parallel with a Haiku classifier | Accepted |
 | 013 | Spend metering with hard monthly caps on Anthropic and Voyage | Accepted |
 | 014 | Chat path: one SSE response per message; run events on a resumable stream | Accepted |
+| 015 | Mission-control UI, built on the event contract before the agents exist | Accepted |
 
 ---
 
@@ -430,3 +431,44 @@ request. Runs last minutes, outlive any request, and must survive a page refresh
 - Measured end to end: a greeting returns in ~30 ms for $0. A docs answer costs about
   $0.0006 (~4.5K tokens of excerpts) and its text starts in ~3 s, most of it the
   classifier and the search.
+
+## 015: Mission-control UI, built on the event contract before the agents exist
+
+**Context.** The project's claim is an agent that researches, codes, tests and fixes
+itself where you can watch it. A chat window with a spinner hides exactly that. The agent
+graph (Phase 3) and the self-healing loop (Phase 4) don't exist yet, but the event format
+they will stream does (§5).
+
+**Decision.**
+- **Layout: chat on the left, a run workspace on the right.** The workspace tabs:
+  - **Agents:** the graph, drawn with React Flow in three stages (Plan, Build & heal,
+    Ship). Nodes pulse while working and turn green or red, researchers fan out per
+    provider, and the diagnostician → coder loop counts its fixes.
+  - **Timeline:** every event, with expandable detail.
+  - **Code:** Monaco, with a diff between consecutive iterations.
+  - **Checks:** a check × iteration matrix with each check's output.
+  - **Sources:** what each researcher retrieved.
+  - **Spec & decisions:** the questions asked, the assumptions made (with override), the
+    decisions with their rationale, and the lessons learned.
+- **One reducer for everything.** `run-state.ts` folds events into the view. Live mode
+  feeds it from SSE; the sample run feeds it a prefix of a script, so scrubbing the
+  replay is just folding fewer events.
+- **The UI is built now, against the contract.** A scripted sample run (three
+  iterations: a missing dependency, then a signature verified on re-serialized JSON, then
+  green) exercises every view. It's labeled "Scripted sample" wherever it shows. The
+  contract it follows is written down in [ui-events.md](ui-events.md), so Phase 3 has a
+  spec to emit against.
+- **The sample run is the default for visitors.** It needs no backend and costs nothing,
+  which is the replay mode the deployment plan calls for. Live mode is one click away.
+- **Every chat reply shows its route** (intent, tier, latency, cost), and docs answers
+  link their citations.
+- **Built to be used, not only watched.** Dark and light themes with no flash on load, a
+  command palette (Ctrl/⌘ K), keyboard navigation, status shown by icon as well as
+  color, `prefers-reduced-motion`, and a stacked layout for phones.
+
+**Consequences.**
+- Phase 3's graph nodes must emit the documented events. Anything else just won't show.
+- Monaco loads from a CDN on first use of the Code tab. That keeps the bundle small but
+  adds a network dependency to that tab.
+- The sample run can drift from what the real agents do. It should be replaced by a
+  recorded real run once Phase 4 produces one.

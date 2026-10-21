@@ -233,7 +233,9 @@ starts, so a bad request still gets a real status code (404, 422, 429, 503). If 
 client disconnects mid-answer, the partial reply is saved and marked interrupted
 (ADR 014).
 
-Finished runs are saved to Postgres for a "replay this run" view. Step labels come from
+The payload of each event type is specified in [ui-events.md](ui-events.md), which
+is what the web UI renders. Finished runs are saved to Postgres for a "replay this run"
+view. Step labels come from
 templates, so they cost nothing. Only diagnosis text is model-written.
 
 ## 6. State and memory
