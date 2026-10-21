@@ -91,9 +91,9 @@ Intents and their routes:
 
 | Intent | Route |
 |---|---|
-| `chitchat` | Direct streamed reply from the small model |
-| `docs_question` | A single RAG call. No graph, no worker. |
-| `integration_task` | Enqueue an agent run |
+| `chitchat` | Rule hits get a template reply ($0, instant). Anything else gets a short streamed reply from the small model. |
+| `docs_question` | One search (vector + rerank) and one streamed small-model answer that cites the excerpts as [n]. No graph, no worker. The router rewrites follow-ups ("what about pull requests?") into a standalone search query in the same call. |
+| `integration_task` | Create a run and enqueue it. In Phase 2 the run is recorded and its event stream is live, but nothing executes it yet. |
 | `followup_edit` | **Resume the existing run from its checkpoint** with a modified spec. Only the affected stages re-run. |
 | `clarify` | Ask the user. If confidence is low, a question is cheaper than a wrong heavy run. |
 
@@ -219,9 +219,19 @@ The diagnose/fix loop that consumes these results is described in the agent doc.
 
 **Pipeline:**
 1. Graph nodes emit events through LangGraph's custom stream writer.
-2. The worker appends them to a Redis Stream per run (`XADD`).
-3. A FastAPI SSE endpoint serves them and honors `Last-Event-ID`, so a refresh replays
-   and resumes.
+2. The worker appends them to a Redis Stream per run (`XADD`). A per-run counter supplies
+   `seq`. The stream is capped at 10,000 entries and expires 7 days after the run ends.
+3. `GET /runs/{id}/events` serves them as SSE. Each event's `id` is its stream entry id,
+   so a reconnect with `Last-Event-ID` resumes right after the last event seen. The
+   response ends after `run.completed` or `run.failed`. Idle connections get keep-alive
+   comments.
+
+**Chat replies** stream on the `POST /chat` response itself, as typed SSE events:
+`conversation`, `route`, `citations` (docs questions), `run` (tasks), `delta`, `error`
+and `done` (with the reply's cost and latency). Requests are validated before the stream
+starts, so a bad request still gets a real status code (404, 422, 429, 503). If the
+client disconnects mid-answer, the partial reply is saved and marked interrupted
+(ADR 014).
 
 Finished runs are saved to Postgres for a "replay this run" view. Step labels come from
 templates, so they cost nothing. Only diagnosis text is model-written.

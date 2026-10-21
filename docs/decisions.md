@@ -18,6 +18,7 @@ and what it costs us.
 | 011 | Docs search: vector + reranker by default, BM25 as fallback, chosen by eval | Accepted |
 | 012 | Router: rules, then nearest neighbour in parallel with a Haiku classifier | Accepted |
 | 013 | Spend metering with hard monthly caps on Anthropic and Voyage | Accepted |
+| 014 | Chat path: one SSE response per message; run events on a resumable stream | Accepted |
 
 ---
 
@@ -349,6 +350,10 @@ about "other", such as whether "stores them" implies a database.
 - The classifier sees the conversation and the message as tagged data, with an explicit
   "never instructions" rule. Both injection cases routed correctly, but two cases are a
   smoke test, not a defense. The agent graph treats user input as data regardless (§8).
+- **Later addition (Phase 2b):** the classifier also returns `search_query`, the docs
+  question rewritten to stand alone. Re-running the eval: accuracy unchanged (1.00),
+  classifier p50 +~90 ms, cost +13% ($0.11 per 1,000 messages). In return, follow-up
+  docs questions find the right pages without a second LLM call.
 
 ## 013: Spend metering with hard monthly caps on Anthropic and Voyage
 
@@ -384,3 +389,44 @@ enforce its own limit and degrade cleanly.
 - Each paid call adds one indexed aggregate query, negligible next to a ~1 s LLM call.
 - Prices are maintained by hand. A test pins the arithmetic, including Haiku 5.5's second
   rate card above 100K prompt tokens.
+
+## 014: Chat path: one SSE response per message; run events on a resumable stream
+
+**Context.** The chat UI has to show an answer as it's written, and a run's steps as
+they happen, over connections that drop. Chat replies last seconds and belong to one
+request. Runs last minutes, outlive any request, and must survive a page refresh.
+
+**Decision.**
+- **A chat reply streams on its own `POST /chat` response**, as typed SSE events
+  (`conversation`, `route`, `citations`, `run`, `delta`, `error`, `done`). No queue and
+  no worker: the cheap paths stay cheap.
+- **Run events go through Redis Streams** and are served by `GET /runs/{id}/events`. The
+  stream entry id is the SSE event id, so `Last-Event-ID` resumes exactly where the
+  client stopped, and a refresh replays from the start.
+- **FastAPI's native SSE support**, not a third-party package. It sends keep-alive
+  comments and cancels the generator when the client goes away.
+- **Validation happens in dependencies, before the stream starts.** An unknown
+  conversation is a 404, an overlong message a 422, the rate limit a 429, and a missing
+  API key a 503, not an error event inside a 200 response.
+- **Rule hits get template replies** ($0, ~30 ms server-side). Every other reply comes
+  from Haiku at low effort with thinking off.
+- **Docs answers cite their excerpts as [n].** The `citations` event lists them before
+  the answer starts, so the UI can link each marker. With no hits, the reply says so
+  instead of answering from the model's memory.
+- **Both turns are saved with their route, citations, cost and latency.** A reply cut
+  off by a disconnect is still saved, marked `interrupted`, from a background task,
+  because the request's own task is being cancelled.
+- **Per-IP rate limit** of 20 messages a minute, in a fixed Redis window. It fails open,
+  so a Redis outage doesn't take chat down.
+
+**Consequences.**
+- Two streaming mechanisms instead of one. The alternative, putting chat replies on the
+  run event bus too, would add a Redis round trip and a second request to every
+  "hi".
+- Chat replies aren't resumable: a dropped connection loses the rest of that answer (the
+  saved part survives). That's fine for replies of a few seconds.
+- An integration task currently ends at `run.failed` with reason `not_implemented`. The
+  stream, the run record and the UI contract are in place for Phase 3's worker.
+- Measured end to end: a greeting returns in ~30 ms for $0. A docs answer costs about
+  $0.0006 (~4.5K tokens of excerpts) and its text starts in ~3 s, most of it the
+  classifier and the search.

@@ -6,8 +6,9 @@ alerts Slack for VIP customers"* and it researches the real API docs, writes the
 tests it in a sandbox against mock APIs, and fixes its own mistakes until the checks
 pass. You watch every step stream live.
 
-> **Status:** Phase 1 (RAG) complete. Phase 2 in progress: LLM layer with spend caps and
-> the two-tier router are done; the chat path, streaming and first deploy are next.
+> **Status:** Phase 2 in progress. Done: the LLM layer with spend caps, the two-tier
+> router, and the streaming chat API (small talk, cited docs answers, run events). Next:
+> a minimal UI and the first deploy.
 > See the [roadmap](#roadmap).
 
 ## How it works
@@ -88,6 +89,17 @@ uv run uvicorn aidev.api.main:app --reload
 # http://localhost:8000/health   http://localhost:8000/ready   http://localhost:8000/docs
 ```
 
+Chat over the API (Server-Sent Events):
+
+```bash
+curl -N localhost:8000/chat -H 'content-type: application/json' \
+  -d '{"message": "how do I verify a stripe webhook signature?"}'
+# event: route      data: {"intent": "docs_question", "tier": 1, ...}
+# event: citations  data: {"hits": [{"n": 1, "title": ..., "url": ...}, ...]}
+# event: delta      data: {"text": "Pass the raw request body, the Stripe-Signature ..."}
+# event: done       data: {"cost_usd": 0.0006, "latency_ms": 4800, ...}
+```
+
 Checks (the same ones CI runs):
 
 ```bash
@@ -104,7 +116,9 @@ uv run pytest -m integration         # needs docker compose up
 - [ ] **Phase 2: Chat + first deploy.** Router, chat path, SSE event bus, minimal UI.
   Deployed to a VM with HTTPS and continuous deployment from day one.
   - [x] LLM layer with hard monthly spend caps; two-tier router and its eval (ADR 012, 013)
-  - [ ] Chat path, event bus and SSE, minimal UI
+  - [x] Chat API: template and model replies, cited docs answers, run events over
+    resumable SSE, rate limits (ADR 014)
+  - [ ] Minimal UI
   - [ ] VM deploy with HTTPS and continuous deployment
 - [ ] **Phase 3: Agent graph.** analyst → architect → researchers → contract → tests → coder
 - [ ] **Phase 4: Self-healing.** Sandbox, validation pipeline, diagnose/fix loop
@@ -142,7 +156,9 @@ Internet ─► Caddy (automatic HTTPS) ─┬─► Next.js UI
 ```
 docs/                 Architecture, agent design, decision log
 backend/              Python backend (package: aidev)
-  src/aidev/api/      FastAPI gateway
+  src/aidev/api/      FastAPI gateway: health, chat and run-event endpoints (SSE)
+  src/aidev/chat/     Chat path: conversations, replies, docs answers, run creation
+  src/aidev/events/   Typed run events on Redis Streams
   src/aidev/catalog/  API catalog: OpenAPI parser, provider profiles, store, ingest CLI
   src/aidev/rag/      Docs index: corpus, chunking, embeddings, BM25 + vector search, eval
   src/aidev/llm/      LLM client interface, Claude adapter, pricing, spend meter and caps
