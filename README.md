@@ -6,7 +6,8 @@ alerts Slack for VIP customers"* and it researches the real API docs, writes the
 tests it in a sandbox against mock APIs, and fixes its own mistakes until the checks
 pass. You watch every step stream live.
 
-> **Status:** Phase 1 (RAG) complete: API catalog, docs index, search and retrieval eval.
+> **Status:** Phase 1 (RAG) complete. Phase 2 in progress: LLM layer with spend caps and
+> the two-tier router are done; the chat path, streaming and first deploy are next.
 > See the [roadmap](#roadmap).
 
 ## How it works
@@ -28,8 +29,11 @@ Full design docs:
 - [Agent architecture](docs/agent-architecture.md): agents, blackboard state, the mechanisms that make it intelligent
 - [Decision log](docs/decisions.md): the major design decisions and their trade-offs
 
-- **Cost-aware routing.** Rules and embedding matching handle small talk without an LLM.
-  A small model classifies the rest. Only real integration tasks start the agent graph.
+- **Cost-aware routing.** Rules and embedding matching answer small talk without waiting
+  for an LLM (~0.3 s instead of ~1.3 s). A small model classifies the rest: 109 of 109
+  correct on the golden set, typos and prompt-injection attempts included. Only real
+  integration tasks start the agent graph. Every paid call is metered against hard
+  monthly caps.
 - **Grounded RAG.** Provider OpenAPI specs are parsed into an exact *API catalog*
   (endpoints, webhook events, schemas). Vector search plus a reranker covers the docs
   (Hit@8 0.98 on a 66-query golden set), with BM25 in SQL as the fallback. Generated
@@ -78,6 +82,8 @@ uv run python -m aidev.catalog ingest  # load the API catalog (~10 s, downloads 
 uv run python -m aidev.rag index     # build the docs index (full-text search works now)
 uv run python -m aidev.rag embed     # embed it (needs VOYAGE_API_KEY; resumable)
 uv run python -m aidev.rag search "verify a stripe webhook signature" --provider stripe
+uv run python -m aidev.router route "alert slack when a stripe dispute opens"  # needs ANTHROPIC_API_KEY
+uv run python -m aidev.llm usage     # month-to-date spend against the monthly caps
 uv run uvicorn aidev.api.main:app --reload
 # http://localhost:8000/health   http://localhost:8000/ready   http://localhost:8000/docs
 ```
@@ -97,6 +103,9 @@ uv run pytest -m integration         # needs docker compose up
 - [x] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, search, retrieval eval
 - [ ] **Phase 2: Chat + first deploy.** Router, chat path, SSE event bus, minimal UI.
   Deployed to a VM with HTTPS and continuous deployment from day one.
+  - [x] LLM layer with hard monthly spend caps; two-tier router and its eval (ADR 012, 013)
+  - [ ] Chat path, event bus and SSE, minimal UI
+  - [ ] VM deploy with HTTPS and continuous deployment
 - [ ] **Phase 3: Agent graph.** analyst → architect → researchers → contract → tests → coder
 - [ ] **Phase 4: Self-healing.** Sandbox, validation pipeline, diagnose/fix loop
 - [ ] **Phase 5: UI.** Run timeline, iteration diff viewer, citations, replay of recorded runs
@@ -136,9 +145,12 @@ backend/              Python backend (package: aidev)
   src/aidev/api/      FastAPI gateway
   src/aidev/catalog/  API catalog: OpenAPI parser, provider profiles, store, ingest CLI
   src/aidev/rag/      Docs index: corpus, chunking, embeddings, BM25 + vector search, eval
+  src/aidev/llm/      LLM client interface, Claude adapter, pricing, spend meter and caps
+  src/aidev/router/   Two-tier router: rules, nearest neighbour, classifier, eval
   src/aidev/infra/    Postgres / Redis clients
   migrations/         Alembic database migrations
 corpus/playbook/      Engineering playbook (indexed alongside provider docs)
+corpus/router/        Labeled example messages for the router's tier 0
 corpus/eval/          Golden sets for evaluation
 infra/postgres/       DB init scripts (pgvector)
 .github/workflows/    CI

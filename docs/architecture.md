@@ -64,10 +64,28 @@ Components:
 
 ## 2. Smart routing (R1)
 
-| Tier | Mechanism | Latency | Cost | Handles |
+| Tier | Mechanism | Latency (p50) | Cost | Handles |
 |---|---|---|---|---|
-| 0 | Rules (greetings, thanks) + nearest-neighbor match against labeled example messages | < 30 ms | $0 | Obvious small talk |
-| 1 | Small-model classifier with structured output: `intent`, `confidence`, `systems[]` | ~300 ms | ~$0.0001 | Everything else |
+| 0 | Whole-message rules (greetings, thanks, farewells, acknowledgements) | < 1 ms | $0 | 11% of the golden set |
+| 0 | Nearest neighbour against labeled example messages (`voyage-4`), thresholds tuned by leave-one-out | ~300 ms | $0 (free tokens) | Paraphrased small talk: another 16% |
+| 1 | Haiku 5.5 classifier with structured output: `intent`, `confidence`, `systems[]` | ~1.3 s | ~$0.0001 | Everything else |
+
+- **Rules match the whole message**, so "hi, build me a Stripe webhook" is never small
+  talk. Acknowledgements ("ok", "yes", "👍") skip tier 0 when the assistant has just
+  asked a question, because then they are answers.
+- **Tier 0 only ever answers `chitchat`.** Its only possible error is swallowing a real
+  request, so its thresholds are tuned for zero false positives.
+- **The nearest-neighbour lookup and the classifier start together.** Messages that
+  aren't small talk wait no longer than the classifier alone. When tier 0 answers first,
+  the classifier finishes in the background as a shadow check: its cost is recorded, and
+  disagreements are logged as an online measure of tier 0's precision.
+- A heavy intent below 0.5 confidence becomes `clarify`. A `followup_edit` with no run to
+  edit becomes a new `integration_task`.
+
+On the 109-case golden set (`python -m aidev.router eval`), Haiku 5.5 routes every
+message correctly, including typos, Spanish and German, and prompt-injection attempts.
+Tier 0 cuts the routing time for small talk from ~1.3 s to ~0.3 s. The numbers are in
+ADR 012.
 
 Intents and their routes:
 
@@ -244,6 +262,12 @@ Expected cost per heavy run:
 
 Expected project total: **under $15**. Voyage embeddings and reranking fall within the
 free token allowance.
+
+**Spend caps (ADR 013).** Every paid call goes through a meter that checks a hard
+monthly cap before the call and writes its cost to a `usage_ledger` table afterwards:
+`ANTHROPIC_MONTHLY_USD_CAP` (default $5) and `VOYAGE_MONTHLY_TOKEN_CAP` (default 30M
+tokens, the unit of Voyage's free allowance). Over the cap, LLM calls fail fast and docs
+search falls back to BM25. `python -m aidev.llm usage` shows month-to-date spend.
 
 **Cost levers:**
 - **Prompt caching:** in the fix loop, the system prompt, contract and current files form a
