@@ -1,11 +1,13 @@
-"""Hybrid search over `doc_chunks` (docs/architecture.md §3.2).
+"""Search over `doc_chunks` (docs/architecture.md §3.2, ADR 011).
 
-Full-text search catches exact identifiers (`chat.postMessage`, `invoice.payment_failed`)
-that embeddings blur; vector search catches paraphrases ("tell me when a card is
-declined") that share no words with the docs. Their rankings are merged with Reciprocal
-Rank Fusion, and a cross-encoder reranker orders the fused candidates.
+The default is vector search followed by a cross-encoder reranker: on the golden set it
+matched every other configuration's quality, exact identifiers included. BM25 runs in
+plain SQL with no external service, so it's the fallback when the embedding service is
+unavailable. Hybrid mode (BM25 + vectors fused with Reciprocal Rank Fusion) stays
+available for comparison.
 """
 
+import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -16,9 +18,11 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from aidev.rag.documents import DocType
-from aidev.rag.embeddings import Embedder, Reranker
+from aidev.rag.embeddings import Embedder, EmbeddingServiceError, Reranker
 from aidev.rag.index import embedding_text
 from aidev.rag.tables import doc_chunks
+
+log = logging.getLogger(__name__)
 
 CANDIDATES = 50  # per retriever, and the most the reranker sees
 RRF_K = 60  # standard constant from the RRF paper; damps the weight of top ranks
@@ -105,6 +109,7 @@ class SearchTrace:
     bm25_ids: list[int] = field(default_factory=list)
     vector_ids: list[int] = field(default_factory=list)
     timings_ms: dict[str, float] = field(default_factory=dict)
+    degraded: list[str] = field(default_factory=list)  # stages that fell back
 
 
 class DocSearch:
@@ -124,29 +129,53 @@ class DocSearch:
         k: int = 8,
         providers: Sequence[str] | None = None,
         doc_types: Sequence[DocType] | None = None,
-        mode: SearchMode = SearchMode.HYBRID,
+        mode: SearchMode = SearchMode.VECTOR,
         rerank: bool = True,
         trace: SearchTrace | None = None,
     ) -> list[SearchHit]:
         trace = trace if trace is not None else SearchTrace()
-        if mode in (SearchMode.BM25, SearchMode.HYBRID):
+        if mode in (SearchMode.VECTOR, SearchMode.HYBRID):
+            trace.vector_ids = await self._vector_stage(query, providers, doc_types, trace)
+        # BM25 runs when asked for, and as the fallback when vector search produced
+        # nothing (service down, or the index isn't embedded yet).
+        if mode != SearchMode.VECTOR or not trace.vector_ids:
             with _timer(trace, "bm25"):
                 trace.bm25_ids = await self._bm25(query, providers, doc_types)
-        if mode in (SearchMode.VECTOR, SearchMode.HYBRID):
-            if self.embedder is None:
-                raise ValueError(f"{mode} search needs an embedder")
-            with _timer(trace, "vector"):
-                trace.vector_ids = await self._vector(query, providers, doc_types)
 
         fused = rrf([trace.bm25_ids, trace.vector_ids])[:CANDIDATES]
         hits = await self._load(fused)
         if rerank and self.reranker is not None and hits:
-            with _timer(trace, "rerank"):
-                ranked = await self.reranker.rerank(
-                    query, [embedding_text(h.breadcrumb, h.content) for h in hits], top_k=k
-                )
-            return [_with_score(hits[r.index], r.score) for r in ranked]
+            try:
+                with _timer(trace, "rerank"):
+                    ranked = await self.reranker.rerank(
+                        query, [embedding_text(h.breadcrumb, h.content) for h in hits], top_k=k
+                    )
+            except EmbeddingServiceError:
+                log.warning("reranker unavailable; returning unreranked results", exc_info=True)
+                trace.degraded.append("rerank")
+            else:
+                return [_with_score(hits[r.index], r.score) for r in ranked]
         return hits[:k]
+
+    async def _vector_stage(
+        self,
+        query: str,
+        providers: Sequence[str] | None,
+        doc_types: Sequence[DocType] | None,
+        trace: SearchTrace,
+    ) -> list[int]:
+        if self.embedder is None:
+            trace.degraded.append("embed")
+            return []
+        try:
+            with _timer(trace, "embed"):
+                vector = await self.embedder.embed_query(query)
+        except EmbeddingServiceError:
+            log.warning("embedding service unavailable; falling back to BM25", exc_info=True)
+            trace.degraded.append("embed")
+            return []
+        with _timer(trace, "vector"):
+            return await self._vector(vector, providers, doc_types)
 
     async def _bm25(
         self, query: str, providers: Sequence[str] | None, doc_types: Sequence[DocType] | None
@@ -170,10 +199,12 @@ class DocSearch:
             return list((await conn.execute(stmt, params)).scalars())
 
     async def _vector(
-        self, query: str, providers: Sequence[str] | None, doc_types: Sequence[DocType] | None
+        self,
+        vector: list[float],
+        providers: Sequence[str] | None,
+        doc_types: Sequence[DocType] | None,
     ) -> list[int]:
         assert self.embedder is not None
-        vector = await self.embedder.embed_query(query)
         distance = doc_chunks.c.embedding.cosine_distance(vector)
         stmt = (
             _filtered(

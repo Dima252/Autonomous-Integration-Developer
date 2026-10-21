@@ -21,6 +21,7 @@ class EvalCase:
     query: str
     relevant: tuple[str, ...]
     providers: tuple[str, ...] = ()
+    slice: str = "natural"  # "natural" questions, or exact "identifier" lookups
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ CONFIGS = {
     for c in (
         Config("bm25", SearchMode.BM25, rerank=False),
         Config("vector", SearchMode.VECTOR, rerank=False),
+        Config("vector+rerank", SearchMode.VECTOR, rerank=True),
         Config("hybrid", SearchMode.HYBRID, rerank=False),
         Config("hybrid+rerank", SearchMode.HYBRID, rerank=True),
     )
@@ -45,6 +47,7 @@ CONFIGS = {
 class CaseResult:
     case: EvalCase
     retrieved: list[str]  # unique doc keys, in rank order
+    latency_ms: float = 0.0
 
     def first_hit(self) -> int | None:
         return next(
@@ -58,7 +61,6 @@ class ConfigReport:
     config: Config
     k: int
     results: list[CaseResult] = field(default_factory=list)
-    latencies_ms: list[float] = field(default_factory=list)
 
     @property
     def hit_rate(self) -> float:
@@ -77,16 +79,26 @@ class ConfigReport:
 
     @property
     def p50_ms(self) -> float:
-        return statistics.median(self.latencies_ms) if self.latencies_ms else 0.0
+        return statistics.median(r.latency_ms for r in self.results) if self.results else 0.0
 
     def misses(self) -> list[CaseResult]:
         return [r for r in self.results if r.first_hit() is None]
+
+    def only(self, slice_name: str) -> "ConfigReport":
+        return ConfigReport(
+            self.config, self.k, [r for r in self.results if r.case.slice == slice_name]
+        )
 
 
 def load_cases(path: Path) -> list[EvalCase]:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     return [
-        EvalCase(c["query"], tuple(c["relevant"]), tuple(c.get("providers", ())))
+        EvalCase(
+            c["query"],
+            tuple(c["relevant"]),
+            tuple(c.get("providers", ())),
+            c.get("slice", "natural"),
+        )
         for c in data["case"]
     ]
 
@@ -122,37 +134,54 @@ async def evaluate(
                 rerank=config.rerank,
                 trace=trace,
             )
-            report.results.append(CaseResult(case, list(dict.fromkeys(h.doc_key for h in hits))))
-            # Search time excluding the query-embedding call, which depends on the
-            # network (and the free tier's pacing), not on the retrieval design.
-            report.latencies_ms.append(sum(trace.timings_ms.values()))
+            # Latency excludes embedding the query: the eval caches query vectors, so
+            # that time would be zero here and network-bound in production. Reranking
+            # is a network call too, but it isn't cached, so it's included.
+            report.results.append(
+                CaseResult(
+                    case,
+                    list(dict.fromkeys(h.doc_key for h in hits)),
+                    sum(ms for stage, ms in trace.timings_ms.items() if stage != "embed"),
+                )
+            )
         reports.append(report)
     return reports
 
 
-def format_report(reports: Sequence[ConfigReport], cases: int) -> str:
-    k = reports[0].k if reports else 8
-    lines = [
-        f"Retrieval eval: {cases} cases, top {k} chunks, document-level metrics",
-        "",
-        f"| Config | Hit@{k} | Recall@{k} | MRR | p50 search ms |",
-        "|---|---|---|---|---|",
-    ]
-    lines += [
-        f"| {r.config.name} | {r.hit_rate:.2f} | {r.recall:.2f} | {r.mrr:.2f} | {r.p50_ms:.0f} |"
-        for r in reports
-    ]
+def format_report(reports: Sequence[ConfigReport]) -> str:
+    if not reports:
+        return "No configurations evaluated."
+    k = reports[0].k
+    slices = sorted({r.case.slice for r in reports[0].results})
+    lines = [f"Retrieval eval: top {k} chunks, document-level metrics", ""]
+    sections = [("all", reports)]
+    if len(slices) > 1:
+        sections += [(name, [r.only(name) for r in reports]) for name in slices]
+    for name, group in sections:
+        lines += [
+            f"{name} ({len(group[0].results)} cases)",
+            "",
+            f"| Config | Hit@{k} | Recall@{k} | MRR | p50 ms (excl. query embedding) |",
+            "|---|---|---|---|---|",
+        ]
+        lines += [
+            f"| {r.config.name} | {r.hit_rate:.2f} | {r.recall:.2f} | {r.mrr:.2f} "
+            f"| {r.p50_ms:.0f} |"
+            for r in group
+        ]
+        lines.append("")
     for r in reports:
         misses = r.misses()
         if misses:
-            lines += ["", f"Misses for {r.config.name} ({len(misses)}):"]
+            lines += [f"Misses for {r.config.name} ({len(misses)}):"]
             lines += [f"- {m.case.query!r} -> got {m.retrieved[:3]}" for m in misses]
-    return "\n".join(lines)
+            lines.append("")
+    return "\n".join(lines).rstrip()
 
 
 class CachedQueryEmbedder:
     """Caches query vectors on disk so repeated eval runs don't spend API requests
-    (3 per minute on Voyage's free tier) re-embedding the same 50 queries."""
+    re-embedding the same queries (only 3 requests per minute on Voyage's free tier)."""
 
     def __init__(self, inner: Embedder, path: Path) -> None:
         self.inner = inner

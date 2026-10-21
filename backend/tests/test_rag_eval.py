@@ -31,24 +31,27 @@ def test_rrf_handles_an_empty_ranking() -> None:
 def test_report_metrics() -> None:
     report = ConfigReport(CONFIGS["bm25"], k=8)
     report.results = [
-        CaseResult(EvalCase("a", ("x", "y")), ["x", "q", "y"]),  # hit at 1, recall 1
-        CaseResult(EvalCase("b", ("x", "y")), ["q", "y"]),  # hit at 2, recall 0.5
-        CaseResult(EvalCase("c", ("x",)), ["q"]),  # miss
+        CaseResult(EvalCase("a", ("x", "y")), ["x", "q", "y"], 5.0),  # hit at 1, recall 1
+        CaseResult(EvalCase("b", ("x", "y")), ["q", "y"], 7.0),  # hit at 2, recall 0.5
+        CaseResult(EvalCase("c", ("x",), slice="identifier"), ["q"], 9.0),  # miss
     ]
-    report.latencies_ms = [5.0, 7.0, 9.0]
 
     assert report.hit_rate == pytest.approx(2 / 3)
     assert report.recall == pytest.approx(0.5)
     assert report.mrr == pytest.approx((1 + 0.5 + 0) / 3)
     assert report.p50_ms == 7.0
     assert [m.case.query for m in report.misses()] == ["c"]
-    assert "| bm25 | 0.67 | 0.50 | 0.50 | 7 |" in format_report([report], 3)
+    text = format_report([report])
+    assert "| bm25 | 0.67 | 0.50 | 0.50 | 7 |" in text  # all cases
+    assert "identifier (1 cases)" in text
+    assert report.only("natural").hit_rate == 1.0
 
 
 def test_golden_set_is_well_formed() -> None:
     cases = load_cases(get_settings().corpus_dir / "eval" / "retrieval.toml")
 
     assert len(cases) >= 40
+    assert {c.slice for c in cases} <= {"natural", "identifier"}
     assert len({c.query for c in cases}) == len(cases)
     for case in cases:
         assert case.relevant, case.query

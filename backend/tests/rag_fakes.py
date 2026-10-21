@@ -5,7 +5,7 @@ import math
 import re
 from collections.abc import Sequence
 
-from aidev.rag.embeddings import EMBEDDING_DIMENSIONS, RerankResult
+from aidev.rag.embeddings import EMBEDDING_DIMENSIONS, EmbeddingServiceError, RerankResult
 
 
 def bag_of_words(text: str) -> list[float]:
@@ -42,3 +42,18 @@ class ReversingReranker:
     async def rerank(self, query: str, documents: Sequence[str], top_k: int) -> list[RerankResult]:
         n = len(documents)
         return [RerankResult(i, float(i) / n) for i in reversed(range(n))][:top_k]
+
+
+class FailingService:
+    """An embedder and reranker whose provider is down."""
+
+    model = "down"
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        raise EmbeddingServiceError("service unavailable")
+
+    async def embed_query(self, text: str) -> list[float]:
+        raise EmbeddingServiceError("service unavailable")
+
+    async def rerank(self, query: str, documents: Sequence[str], top_k: int) -> list[RerankResult]:
+        raise EmbeddingServiceError("service unavailable")

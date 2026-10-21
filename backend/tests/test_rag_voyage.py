@@ -6,7 +6,12 @@ import pytest
 from pydantic import SecretStr
 
 from aidev.config import Settings
-from aidev.rag.embeddings import EMBEDDING_DIMENSIONS, RateLimiter, estimate_tokens
+from aidev.rag.embeddings import (
+    EMBEDDING_DIMENSIONS,
+    EmbeddingServiceError,
+    RateLimiter,
+    estimate_tokens,
+)
 from aidev.rag.voyage import (
     VoyageClient,
     VoyageEmbedder,
@@ -171,3 +176,24 @@ async def test_create_voyage_requires_a_key() -> None:
 
     assert (embedder.model, reranker.model) == ("m", "r")
     assert embedder.client is reranker.client  # one shared rate limiter
+
+
+async def test_client_retries_connection_errors_and_wraps_the_last_one() -> None:
+    clock = FakeClock()
+    attempts = 0
+
+    def flaky(request: httpx2.Request) -> httpx2.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx2.ConnectError("connection refused")
+        return _embeddings_response(request)
+
+    assert len(await VoyageEmbedder(_client(flaky, clock), "voyage-4").embed_query("q")) > 0
+    assert attempts == 2
+
+    def down(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectTimeout("timed out")
+
+    with pytest.raises(EmbeddingServiceError):  # vendor-neutral error type
+        await VoyageEmbedder(_client(down, FakeClock()), "voyage-4").embed_query("q")

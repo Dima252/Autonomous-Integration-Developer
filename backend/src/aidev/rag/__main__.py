@@ -127,7 +127,7 @@ async def _eval(settings: Settings, args: argparse.Namespace) -> None:
             reports = await evaluate(search, cases, [CONFIGS[n] for n in names], k=args.k)
     finally:
         await engine.dispose()
-    print(format_report(reports, len(cases)))
+    print(format_report(reports))
 
 
 def main() -> None:
@@ -146,7 +146,7 @@ def main() -> None:
     search.add_argument("query")
     search.add_argument("--provider", action="append", help="repeatable")
     search.add_argument("--type", action="append", choices=DOC_TYPES, help="repeatable")
-    search.add_argument("--mode", choices=[m.value for m in SearchMode], default="hybrid")
+    search.add_argument("--mode", choices=[m.value for m in SearchMode], default="vector")
     search.add_argument("--no-rerank", dest="rerank", action="store_false")
     search.add_argument("-k", type=int, default=8)
 

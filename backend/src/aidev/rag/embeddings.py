@@ -12,6 +12,12 @@ from typing import Protocol
 EMBEDDING_DIMENSIONS = 1024
 
 
+class EmbeddingServiceError(RuntimeError):
+    """The embedding or reranking service failed after retries. Adapters raise this
+    (not their HTTP library's errors) so callers can degrade without knowing the
+    vendor."""
+
+
 class Embedder(Protocol):
     model: str
 

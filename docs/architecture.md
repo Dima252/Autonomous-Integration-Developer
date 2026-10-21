@@ -10,7 +10,7 @@ in [decisions.md](decisions.md).
 | # | Requirement | How it is met |
 |---|---|---|
 | R1 | Small talk is answered instantly, without starting expensive processes | Two-tier router (§2). Most chit-chat never reaches an LLM, and the rest goes to the cheapest model. |
-| R2 | Uses the exact, correct API docs and never invents endpoints | Structured API catalog + hybrid RAG + a grounding contract (§3) |
+| R2 | Uses the exact, correct API docs and never invents endpoints | Structured API catalog + evaluated RAG + a grounding contract (§3) |
 | R3 | Generated code is checked and fixed automatically until it is robust | Deterministic validation + diagnose/fix loop (§4, and the agent doc) |
 | R4 | The user sees every internal step in real time | Typed run events → Redis Streams → resumable SSE (§5) |
 
@@ -118,16 +118,20 @@ small *profiles* (`catalog/profiles.py`), so the parser stays provider-agnostic.
 - **Indexing in two phases:** chunks are written first (full-text search works
   immediately), then embedded in resumable batches. Unchanged documents are skipped and
   identical chunk text reuses its vector, keyed by content hash.
-- **Search:**
-  - **BM25** computed in SQL over the Postgres `tsvector` (IDF from the GIN index,
-    breadcrumb matches boosted), plus pgvector HNSW cosine search.
-  - Both rankings are merged with Reciprocal Rank Fusion, then the **Voyage reranker**
-    orders the top 50 and returns the top 8.
+- **Search** (chosen by the eval, ADR 011):
+  - **Default:** pgvector HNSW cosine search for the top 50, then the **Voyage
+    reranker** returns the top 8. About 0.8 s per search, most of it two API calls.
+  - **Fallback:** BM25 computed in SQL over the Postgres `tsvector` (IDF from the GIN
+    index, breadcrumb matches boosted). It needs no external service, so search
+    degrades instead of failing when Voyage is unreachable.
+  - **Hybrid** (BM25 + vectors fused with Reciprocal Rank Fusion) remains available
+    as a mode for comparison.
   - Metadata filters: `provider`, `doc_type`.
 - **Embeddings:** Voyage AI (`voyage-4`, 1024 dimensions) and `rerank-3`, behind
   `Embedder` / `Reranker` interfaces so a local model can be swapped in. The client
   paces itself to the account's rate limits and retries `429`s.
-- **Evaluation:** a 50-query golden set with Hit@8, Recall@8 and MRR per configuration
+- **Evaluation:** a 66-query golden set (natural-language questions plus exact
+  identifiers) with Hit@8, Recall@8 and MRR per configuration
   (`python -m aidev.rag eval`). Results are in ADR 011.
 - **Planned: contextual retrieval.** A small model writes 1–2 sentences situating each
   guide chunk, through the Batch API. It will be added as an eval ablation once the

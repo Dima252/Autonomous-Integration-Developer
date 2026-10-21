@@ -4,6 +4,7 @@
 #
 # `providers` mirrors how agents search: scoped to the provider they're researching.
 # Cases without it search the whole index (cross-provider engineering questions).
+# Cases without a `slice` are natural-language questions.
 # Run: uv run python -m aidev.rag eval
 
 # --- Stripe -----------------------------------------------------------------------
@@ -260,3 +261,104 @@ relevant = ["general/playbook/secrets-and-configuration", "stripe/guide/api-keys
 [[case]]
 query = "an outbound HTTP call hangs forever"
 relevant = ["general/playbook/timeouts"]
+
+# --- Exact identifiers --------------------------------------------------------------
+# Added after the first full run, which found BM25 adding nothing once vector search and
+# reranking were in place. These test the case BM25 exists for: an agent pasting an
+# exact name from an error, a header or another doc. Reported as a separate slice.
+
+[[case]]
+slice = "identifier"
+query = "invoice.payment_failed payload"
+providers = ["stripe"]
+relevant = ["stripe/webhook_event/invoice.payment_failed"]
+
+[[case]]
+slice = "identifier"
+query = "Stripe-Signature header"
+providers = ["stripe"]
+relevant = ["stripe/guide/webhooks", "stripe/guide/webhook-signature-errors", "stripe/guide/webhooks-quickstart"]
+
+[[case]]
+slice = "identifier"
+query = "SignatureVerificationError"
+providers = ["stripe"]
+relevant = ["stripe/guide/webhook-signature-errors", "stripe/guide/webhooks-quickstart"]
+
+[[case]]
+slice = "identifier"
+query = "Idempotency-Key"
+providers = ["stripe"]
+relevant = ["stripe/guide/idempotent-requests", "stripe/guide/errors"]
+
+[[case]]
+slice = "identifier"
+query = "starting_after"
+providers = ["stripe"]
+relevant = ["stripe/guide/pagination"]
+
+[[case]]
+slice = "identifier"
+query = "GetCustomersSearch"
+providers = ["stripe"]
+relevant = ["stripe/operation/GetCustomersSearch"]
+
+[[case]]
+slice = "identifier"
+query = "X-Slack-Signature"
+providers = ["slack"]
+relevant = ["slack/guide/verifying-requests"]
+
+[[case]]
+slice = "identifier"
+query = "users.lookupByEmail"
+providers = ["slack"]
+relevant = ["slack/operation/users_lookupByEmail"]
+
+[[case]]
+slice = "identifier"
+query = "chat.update"
+providers = ["slack"]
+relevant = ["slack/operation/chat_update"]
+
+[[case]]
+slice = "identifier"
+query = "chat:write"
+providers = ["slack"]
+relevant = ["slack/guide/scope-chat-write", "slack/guide/chat-postmessage", "slack/operation/chat_postMessage"]
+
+[[case]]
+slice = "identifier"
+query = "X-GitHub-Delivery header"
+providers = ["github"]
+relevant = ["github/guide/webhook-best-practices"]
+
+[[case]]
+slice = "identifier"
+query = "x-ratelimit-remaining"
+providers = ["github"]
+relevant = ["github/guide/rate-limits", "github/guide/rest-best-practices", "github/guide/troubleshooting"]
+
+[[case]]
+slice = "identifier"
+query = "pull_request closed merged"
+providers = ["github"]
+relevant = ["github/webhook_event/pull_request.closed"]
+
+[[case]]
+slice = "identifier"
+query = "X-HubSpot-Signature-v3"
+providers = ["hubspot"]
+relevant = ["hubspot/guide/request-validation"]
+
+[[case]]
+slice = "identifier"
+query = "contact.propertyChange"
+providers = ["hubspot"]
+relevant = ["hubspot/webhook_event/contact.propertyChange"]
+
+[[case]]
+slice = "identifier"
+query = "/crm/v3/objects/contacts/batch/upsert"
+providers = ["hubspot"]
+relevant = ["hubspot/operation/post-/crm/v3/objects/contacts/batch/upsert_upsert"]

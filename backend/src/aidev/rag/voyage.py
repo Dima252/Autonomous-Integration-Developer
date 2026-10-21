@@ -10,6 +10,7 @@ import httpx2
 from aidev.config import Settings
 from aidev.rag.embeddings import (
     EMBEDDING_DIMENSIONS,
+    EmbeddingServiceError,
     RateLimiter,
     RerankResult,
     estimate_tokens,
@@ -24,7 +25,7 @@ MAX_BATCH_TEXTS = 128
 MAX_RETRIES = 6
 
 
-class VoyageError(RuntimeError):
+class VoyageError(EmbeddingServiceError):
     pass
 
 
@@ -45,20 +46,31 @@ class VoyageClient:
         """POST with client-side pacing, retrying rate limits and server errors."""
         for attempt in range(MAX_RETRIES + 1):
             await self.limiter.acquire(tokens)
-            resp = await self._http.post(
-                f"{BASE_URL}/{endpoint}", json=payload, headers=self._headers, timeout=120.0
-            )
+            try:
+                resp = await self._http.post(
+                    f"{BASE_URL}/{endpoint}", json=payload, headers=self._headers, timeout=120.0
+                )
+            except httpx2.TransportError as exc:  # connection failures and timeouts
+                if attempt == MAX_RETRIES:
+                    raise VoyageError(f"{endpoint}: {exc!r} after {attempt} retries") from exc
+                await self._backoff(endpoint, type(exc).__name__, attempt, None)
+                continue
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt == MAX_RETRIES:
                     raise VoyageError(f"{endpoint}: {resp.status_code} after {attempt} retries")
-                delay = _retry_after(resp) or min(2.0 ** (attempt + 1), 60.0)
-                log.warning("voyage %s: %s, retrying in %.0fs", endpoint, resp.status_code, delay)
-                await self._sleep(delay)
+                await self._backoff(endpoint, str(resp.status_code), attempt, _retry_after(resp))
                 continue
             if resp.is_error:
                 raise VoyageError(f"{endpoint}: {resp.status_code} {_detail(resp)}")
             return resp.json()
         raise AssertionError("unreachable")
+
+    async def _backoff(
+        self, endpoint: str, reason: str, attempt: int, retry_after: float | None
+    ) -> None:
+        delay = retry_after or min(2.0 ** (attempt + 1), 60.0)
+        log.warning("voyage %s: %s, retrying in %.0fs", endpoint, reason, delay)
+        await self._sleep(delay)
 
 
 class VoyageEmbedder:

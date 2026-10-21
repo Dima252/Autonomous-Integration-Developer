@@ -6,8 +6,8 @@ alerts Slack for VIP customers"* and it researches the real API docs, writes the
 tests it in a sandbox against mock APIs, and fixes its own mistakes until the checks
 pass. You watch every step stream live.
 
-> **Status:** Phase 1 (RAG) complete: API catalog, docs index, hybrid search and retrieval
-> eval. See the [roadmap](#roadmap).
+> **Status:** Phase 1 (RAG) complete: API catalog, docs index, search and retrieval eval.
+> See the [roadmap](#roadmap).
 
 ## How it works
 
@@ -31,8 +31,9 @@ Full design docs:
 - **Cost-aware routing.** Rules and embedding matching handle small talk without an LLM.
   A small model classifies the rest. Only real integration tasks start the agent graph.
 - **Grounded RAG.** Provider OpenAPI specs are parsed into an exact *API catalog*
-  (endpoints, webhook events, schemas). Hybrid search (BM25 + pgvector + reranker) covers
-  the docs. Generated code may only use operations that exist in the catalog.
+  (endpoints, webhook events, schemas). Vector search plus a reranker covers the docs
+  (Hit@8 0.98 on a 66-query golden set), with BM25 in SQL as the fallback. Generated
+  code may only use operations that exist in the catalog.
 - **Self-healing loop.** Deterministic checks run first: dependency install, ruff, pyright
   against the real SDKs, an endpoint grounding check, and pytest against Prism mock servers
   with signed webhook replays. An LLM reviewer runs last. A diagnostician finds the root
@@ -93,7 +94,7 @@ uv run pytest -m integration         # needs docker compose up
 ## Roadmap
 
 - [x] **Phase 0: Foundation.** Repo layout, Docker services, health/readiness, CI
-- [x] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, hybrid search, retrieval eval
+- [x] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, search, retrieval eval
 - [ ] **Phase 2: Chat + first deploy.** Router, chat path, SSE event bus, minimal UI.
   Deployed to a VM with HTTPS and continuous deployment from day one.
 - [ ] **Phase 3: Agent graph.** analyst → architect → researchers → contract → tests → coder

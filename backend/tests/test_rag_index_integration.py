@@ -12,7 +12,7 @@ from aidev.rag.documents import DocType, SourceDoc, doc_key
 from aidev.rag.index import DocIndex
 from aidev.rag.search import DocSearch, SearchMode, SearchTrace
 from aidev.rag.tables import doc_chunks
-from tests.rag_fakes import FakeEmbedder, ReversingReranker
+from tests.rag_fakes import FailingService, FakeEmbedder, ReversingReranker
 
 pytestmark = pytest.mark.integration
 
@@ -148,10 +148,12 @@ async def test_search_modes_filters_and_rerank(engine: AsyncEngine, provider: st
     assert vector[0].doc_key == doc_key(provider, "guide", "signatures")
 
     trace = SearchTrace()
-    hybrid = await search.search("customer email", providers=scoped, rerank=False, k=3, trace=trace)
+    hybrid = await search.search(
+        "customer email", providers=scoped, mode=SearchMode.HYBRID, rerank=False, k=3, trace=trace
+    )
     assert hybrid[0].doc_key == doc_key(provider, "operation", "create_customer")
     assert trace.bm25_ids and trace.vector_ids
-    assert {"bm25", "vector"} <= set(trace.timings_ms)
+    assert {"bm25", "embed", "vector"} <= set(trace.timings_ms)
 
     ops_only = await search.search(
         "signature customer cursor", providers=scoped, doc_types=["operation"], rerank=False
@@ -180,3 +182,37 @@ async def test_bm25_weighs_rare_terms_above_common_ones(engine: AsyncEngine, pro
     )
 
     assert hits[0].doc_key == rare.key
+
+
+async def test_search_degrades_instead_of_failing(engine: AsyncEngine, provider: str) -> None:
+    await DocIndex(engine).sync(_corpus(provider), "fake-embed", scope=[provider])
+    scoped = [provider]
+
+    # Embedding service down: vector search becomes BM25.
+    trace = SearchTrace()
+    hits = await DocSearch(engine, FailingService(), ReversingReranker()).search(
+        "webhook signature", providers=scoped, rerank=False, trace=trace
+    )
+    assert hits[0].doc_key == doc_key(provider, "guide", "signatures")
+    assert trace.degraded == ["embed"]
+    assert trace.bm25_ids and not trace.vector_ids
+
+    # Reranker down: results come back in retrieval order.
+    trace = SearchTrace()
+    hits = await DocSearch(engine, None, FailingService()).search(
+        "webhook signature", providers=scoped, trace=trace
+    )
+    assert hits[0].doc_key == doc_key(provider, "guide", "signatures")
+    assert trace.degraded == ["embed", "rerank"]
+
+
+async def test_vector_is_the_default_mode(engine: AsyncEngine, provider: str) -> None:
+    embedder = FakeEmbedder()
+    index = DocIndex(engine)
+    await index.sync(_corpus(provider), embedder.model, scope=[provider])
+    await index.embed_pending(embedder, scope=[provider])
+
+    trace = SearchTrace()
+    await DocSearch(engine, embedder).search("cursor pages", providers=[provider], trace=trace)
+
+    assert trace.vector_ids and not trace.bm25_ids
