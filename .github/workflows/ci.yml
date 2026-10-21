@@ -54,5 +54,8 @@ jobs:
         env:
           PGPASSWORD: aidev
 
+      - name: Migrate
+        run: uv run alembic upgrade head
+
       - name: Integration tests
         run: uv run pytest -m integration

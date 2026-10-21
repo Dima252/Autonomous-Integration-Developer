@@ -1,7 +1,10 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
@@ -18,6 +21,8 @@ class Settings(BaseSettings):
     env: Literal["dev", "test", "prod"] = "dev"
     database_url: str = "postgresql+asyncpg://aidev:aidev@localhost:5432/aidev"
     redis_url: str = "redis://localhost:6379/0"
+    # Downloaded specs and docs (gitignored). Re-creatable from the pinned sources.
+    data_dir: Path = REPO_ROOT / "data"
 
 
 @lru_cache

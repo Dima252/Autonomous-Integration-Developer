@@ -86,13 +86,25 @@ up inventing endpoints. Retrieval therefore has two surfaces.
 
 ### 3.1 Structured API catalog: exact lookups
 Each provider's OpenAPI spec (Stripe, Slack, GitHub, HubSpot) is parsed into tables:
-- `operations`: method, path, op_id, params, dereferenced request/response schemas,
-  scopes, api_version
-- `webhook_events`: type, payload schema
-- `schemas`
+- `api_operations`: method, path, op_id, params, request/response schemas, scopes, plus
+  a path regex for matching concrete requests back to an operation
+- `api_webhook_events`: event name, payload schema
+- `api_schemas`: named schemas. Operations refer to them by `$ref` and callers expand
+  references to the depth they need (ADR 010).
 
 The catalog is the **source of truth**. Generated code may only call operations that
 exist here (see the contract in the agent doc).
+
+| Provider | Spec | Operations | Webhook events |
+|---|---|---|---|
+| Stripe | OpenAPI 3.0 | 612 | 268, from the `enabled_events` enum, typed via `x-resourceId` |
+| GitHub | OpenAPI 3.0 + `x-webhooks` | 1,242 | 275, full payload schemas |
+| Slack | Swagger 2.0 (archived 2021) | 174 | none in the spec; covered by the docs index |
+| HubSpot | 8 curated files out of ~700 | 82 | 48 names; payloads only in prose docs |
+
+Sources are pinned to commit SHAs and ingestion is keyed by content hash, so re-running
+`python -m aidev.catalog ingest` is a no-op until a pin changes. Provider quirks live in
+small *profiles* (`catalog/profiles.py`), so the parser stays provider-agnostic.
 
 ### 3.2 Hybrid semantic index: fuzzy discovery
 - **Documents:**
