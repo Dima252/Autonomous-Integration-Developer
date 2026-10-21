@@ -6,7 +6,7 @@ alerts Slack for VIP customers"* and it researches the real API docs, writes the
 tests it in a sandbox against mock APIs, and fixes its own mistakes until the checks
 pass. You watch every step stream live.
 
-> **Status:** Phase 0 (foundation) complete. See the [roadmap](#roadmap).
+> **Status:** Phase 1 (RAG) in progress: the API catalog is done. See the [roadmap](#roadmap).
 
 ## How it works
 
@@ -71,6 +71,8 @@ docker compose up -d                 # Postgres (pgvector) + Redis
 
 cd backend
 uv sync
+uv run alembic upgrade head          # create / update the database schema
+uv run python -m aidev.catalog ingest  # load the API catalog (~10 s, downloads ~25 MB once)
 uv run uvicorn aidev.api.main:app --reload
 # http://localhost:8000/health   http://localhost:8000/ready   http://localhost:8000/docs
 ```
@@ -87,7 +89,7 @@ uv run pytest -m integration         # needs docker compose up
 ## Roadmap
 
 - [x] **Phase 0: Foundation.** Repo layout, Docker services, health/readiness, CI
-- [ ] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, hybrid search, retrieval eval
+- [ ] **Phase 1: RAG.** ~~OpenAPI → API catalog~~ ✓, doc chunking, engineering playbook, hybrid search, retrieval eval
 - [ ] **Phase 2: Chat.** Router, chat path, SSE event bus, minimal UI
 - [ ] **Phase 3: Agent graph.** analyst → architect → researchers → contract → tests → coder
 - [ ] **Phase 4: Self-healing.** Sandbox, validation pipeline, diagnose/fix loop
@@ -100,7 +102,9 @@ uv run pytest -m integration         # needs docker compose up
 docs/               Architecture, agent design, decision log
 backend/            Python backend (package: aidev)
   src/aidev/api/    FastAPI gateway
+  src/aidev/catalog/  API catalog: OpenAPI parser, provider profiles, store, ingest CLI
   src/aidev/infra/  Postgres / Redis clients
+  migrations/       Alembic database migrations
 infra/postgres/     DB init scripts (pgvector)
 .github/workflows/  CI
 ```

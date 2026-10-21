@@ -14,6 +14,7 @@ and what it costs us.
 | 007 | Deterministic validation first; locked test-first acceptance tests | Accepted |
 | 008 | Clarification policy: at most one round of 3 blocking questions | Accepted |
 | 009 | Local Docker sandbox with Prism mock servers | Accepted |
+| 010 | API catalog: named schema refs, provider profiles, pinned sources | Accepted |
 
 ---
 
@@ -163,3 +164,37 @@ calls would need credentials and have side effects.
 - Safe, free, and repeatable.
 - Mock servers can't reproduce every real-world API behavior.
 - A public hosted demo needs either a VM that can run Docker or a replay mode.
+
+## 010: API catalog: named schema refs, provider profiles, pinned sources
+
+**Context.** The four v1 providers publish specs very differently. Stripe has no webhooks
+section (event types exist only as an enum). GitHub uses the `x-webhooks` extension, and
+its spec keys (`check-run`) differ from the event names it delivers (`check_run`).
+Slack's only spec is Swagger 2.0, archived in 2021, and lists legacy OAuth scopes.
+HubSpot publishes ~700 files. The specs are also large and recursive: Stripe's
+`customer` and `subscription` schemas refer to each other.
+
+**Decision.**
+- One parser for OpenAPI 3.x and Swagger 2.0. Named schemas stay as `$ref`s
+  (normalized to `#/components/schemas/<name>`) and are stored once in `api_schemas`.
+  `expand_refs(depth=n)` inlines them on demand. Every other `$ref` (parameters, request
+  bodies, responses) is inlined, so an operation is complete on its own.
+- Provider quirks go in small **profiles**: Stripe events from the enum, typed through
+  `x-resourceId`; GitHub event naming; Slack scopes from each method's token
+  description; HubSpot event names from the subscription enum.
+- Payloads the spec doesn't describe are left empty rather than hand-written. The docs
+  index covers them.
+- Sources are pinned to commit SHAs. Ingestion skips a document whose content hash
+  is unchanged and replaces a changed one atomically.
+- HubSpot is limited to the 8 files CRM integrations need (objects, properties,
+  associations, owners, webhooks).
+
+**Consequences.**
+- Full dereferencing would have blown up on recursive specs. Keeping refs stores each
+  schema once (the whole catalog is ~10 MB in Postgres) and lets agents choose how much
+  detail they pull.
+- A grounding lookup is one indexed SQL query: an invented path or method matches
+  nothing.
+- Slack methods added after 2021 aren't in the catalog. Agents must find them in the
+  docs index and the contract compiler will flag them as unverified.
+- Adding a provider means a source entry and, at most, a small profile.
