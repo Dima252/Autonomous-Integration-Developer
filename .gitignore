@@ -20,7 +20,7 @@ node_modules/
 out/
 
 # Local data (ingested docs, model caches, sandbox output)
-data/
+/data/
 .cache/
 
 # Editors / OS
