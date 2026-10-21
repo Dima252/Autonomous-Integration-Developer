@@ -7,8 +7,14 @@ tests it in a sandbox against mock APIs, and fixes its own mistakes until the ch
 pass. You watch every step stream live.
 
 > **Status:** Phase 2 in progress. Done: the LLM layer with spend caps, the two-tier
-> router, and the streaming chat API (small talk, cited docs answers, run events). Next:
-> a minimal UI and the first deploy.
+> router, the streaming chat API (small talk, cited docs answers, run events) and the
+> mission-control UI. Next: the first deploy.
+
+![Mission control: chat on the left; on the right the agent graph mid-run, with the
+validator failed and the diagnostician working on the fix](docs/images/mission-control.png)
+
+<sub>The UI playing its scripted sample run. The agents that produce real runs are Phase
+3; the UI already renders their [event contract](docs/ui-events.md).</sub>
 > See the [roadmap](#roadmap).
 
 ## How it works
@@ -53,7 +59,8 @@ Full design docs:
   signatures, retries and timeouts. Lessons from past runs carry over, so it improves over
   time.
 - **Transparent execution.** Typed run events go through Redis Streams to a resumable SSE
-  stream, so the UI shows each step as it happens.
+  stream. The UI draws the agent graph live, with the code at every iteration, the checks,
+  the sources, and the decisions and assumptions behind them.
 
 ## Stack
 
@@ -89,6 +96,14 @@ uv run uvicorn aidev.api.main:app --reload
 # http://localhost:8000/health   http://localhost:8000/ready   http://localhost:8000/docs
 ```
 
+The web UI (separate terminal):
+
+```bash
+cd frontend
+npm install
+npm run dev                          # http://localhost:3000 (API on :8000)
+```
+
 Chat over the API (Server-Sent Events):
 
 ```bash
@@ -118,11 +133,13 @@ uv run pytest -m integration         # needs docker compose up
   - [x] LLM layer with hard monthly spend caps; two-tier router and its eval (ADR 012, 013)
   - [x] Chat API: template and model replies, cited docs answers, run events over
     resumable SSE, rate limits (ADR 014)
-  - [ ] Minimal UI
+  - [x] Mission-control UI: chat, live agent graph, timeline, code diffs per iteration,
+    checks, sources, spec and decisions; a scripted sample run (ADR 015)
   - [ ] VM deploy with HTTPS and continuous deployment
 - [ ] **Phase 3: Agent graph.** analyst → architect → researchers → contract → tests → coder
 - [ ] **Phase 4: Self-healing.** Sandbox, validation pipeline, diagnose/fix loop
-- [ ] **Phase 5: UI.** Run timeline, iteration diff viewer, citations, replay of recorded runs
+- [ ] **Phase 5: UI.** Assumption overrides, replay of recorded real runs, run history
+  (the run workspace itself shipped in Phase 2)
 - [ ] **Phase 6: Quality.** Memory, tracing, eval harness with ablations, public demo hardening
 
 ## Deployment
@@ -154,7 +171,8 @@ Internet ─► Caddy (automatic HTTPS) ─┬─► Next.js UI
 ## Repository layout
 
 ```
-docs/                 Architecture, agent design, decision log
+docs/                 Architecture, agent design, decision log, UI event contract
+frontend/             Next.js mission-control UI (see frontend/README.md)
 backend/              Python backend (package: aidev)
   src/aidev/api/      FastAPI gateway: health, chat and run-event endpoints (SSE)
   src/aidev/chat/     Chat path: conversations, replies, docs answers, run creation
