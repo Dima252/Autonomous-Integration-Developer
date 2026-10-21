@@ -10,7 +10,7 @@ in [decisions.md](decisions.md).
 | # | Requirement | How it is met |
 |---|---|---|
 | R1 | Small talk is answered instantly, without starting expensive processes | Two-tier router (§2). Most chit-chat never reaches an LLM, and the rest goes to the cheapest model. |
-| R2 | Uses the exact, correct API docs and never invents endpoints | Structured API catalog + hybrid RAG + a grounding contract (§3) |
+| R2 | Uses the exact, correct API docs and never invents endpoints | Structured API catalog + evaluated RAG + a grounding contract (§3) |
 | R3 | Generated code is checked and fixed automatically until it is robust | Deterministic validation + diagnose/fix loop (§4, and the agent doc) |
 | R4 | The user sees every internal step in real time | Typed run events → Redis Streams → resumable SSE (§5) |
 
@@ -107,18 +107,35 @@ Sources are pinned to commit SHAs and ingestion is keyed by content hash, so re-
 small *profiles* (`catalog/profiles.py`), so the parser stays provider-agnostic.
 
 ### 3.2 Hybrid semantic index: fuzzy discovery
-- **Documents:**
-  - One per operation, webhook event and schema.
-  - Guide pages split along their headings into chunks of ~500–800 tokens, each with a
-    breadcrumb prefix (`Slack › Messaging › chat.postMessage › Arguments`).
-- **Contextual retrieval:** at ingest time a small model writes 1–2 sentences that
-  situate each chunk. This runs through the Batch API, with the full page prompt-cached.
-- **Search:**
-  - Postgres full-text search (BM25-style) + pgvector HNSW, merged with Reciprocal Rank
-    Fusion, then the **Voyage reranker** narrows the top 50 to the top 8.
-  - Metadata filters: `provider`, `doc_type`, `api_version`.
-- **Embeddings:** Voyage AI, behind `Embedder` / `Reranker` interfaces so a local model
-  can be swapped in.
+- **Documents** (`doc_chunks`, one row per chunk):
+  - One compact chunk per catalog operation, webhook event and resource schema, rendered
+    from the catalog so fuzzy questions find exact entries.
+  - 57 curated provider guide pages (webhooks, signatures, auth, errors, rate limits,
+    pagination), fetched as Markdown from the providers' `llms.txt` endpoints.
+  - Guide pages are split along their headings into chunks of ~500–800 tokens, each
+    with a breadcrumb (`Slack › chat.postMessage method › Arguments`). SDK samples in
+    languages other than Python are dropped.
+- **Indexing in two phases:** chunks are written first (full-text search works
+  immediately), then embedded in resumable batches. Unchanged documents are skipped and
+  identical chunk text reuses its vector, keyed by content hash.
+- **Search** (chosen by the eval, ADR 011):
+  - **Default:** pgvector HNSW cosine search for the top 50, then the **Voyage
+    reranker** returns the top 8. About 0.8 s per search, most of it two API calls.
+  - **Fallback:** BM25 computed in SQL over the Postgres `tsvector` (IDF from the GIN
+    index, breadcrumb matches boosted). It needs no external service, so search
+    degrades instead of failing when Voyage is unreachable.
+  - **Hybrid** (BM25 + vectors fused with Reciprocal Rank Fusion) remains available
+    as a mode for comparison.
+  - Metadata filters: `provider`, `doc_type`.
+- **Embeddings:** Voyage AI (`voyage-4`, 1024 dimensions) and `rerank-3`, behind
+  `Embedder` / `Reranker` interfaces so a local model can be swapped in. The client
+  paces itself to the account's rate limits and retries `429`s.
+- **Evaluation:** a 66-query golden set (natural-language questions plus exact
+  identifiers) with Hit@8, Recall@8 and MRR per configuration
+  (`python -m aidev.rag eval`). Results are in ADR 011.
+- **Planned: contextual retrieval.** A small model writes 1–2 sentences situating each
+  guide chunk, through the Batch API. It will be added as an eval ablation once the
+  Anthropic key is in use (Phase 2), and kept only if it measurably helps.
 
 ### 3.3 Engineering playbook corpus
 A curated set of integration best practices is indexed alongside the vendor docs:
@@ -282,4 +299,5 @@ free token allowance.
 
 - **Providers:** Stripe, Slack, GitHub, HubSpot.
 - **Generated code:** Python (FastAPI services, webhook handlers, API clients).
-- **Sandbox:** local Docker. A hosted demo uses replay mode or a self-managed VM.
+- **Sandbox:** local Docker. The hosted demo runs the full stack on one VM: replay mode for
+  visitors, live mode behind a passcode (see the README's Deployment section).

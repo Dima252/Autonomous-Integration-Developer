@@ -15,6 +15,7 @@ and what it costs us.
 | 008 | Clarification policy: at most one round of 3 blocking questions | Accepted |
 | 009 | Local Docker sandbox with Prism mock servers | Accepted |
 | 010 | API catalog: named schema refs, provider profiles, pinned sources | Accepted |
+| 011 | Docs search: vector + reranker by default, BM25 as fallback, chosen by eval | Accepted |
 
 ---
 
@@ -198,3 +199,66 @@ HubSpot publishes ~700 files. The specs are also large and recursive: Stripe's
 - Slack methods added after 2021 aren't in the catalog. Agents must find them in the
   docs index and the contract compiler will flag them as unverified.
 - Adding a provider means a source entry and, at most, a small profile.
+
+## 011: Docs search: vector + reranker by default, BM25 as fallback, chosen by eval
+
+**Context.** The original design (§3.2) was hybrid search: BM25 plus vectors, fused with
+Reciprocal Rank Fusion, then reranked. That's the common recommendation, because vector
+search alone tends to blur exact identifiers. We built every piece and measured each
+configuration against a golden set instead of assuming the design was right.
+
+**The golden set** (`corpus/eval/retrieval.toml`) has 66 information needs phrased the
+way the Researcher agent asks them:
+- 50 **natural-language** questions across all four providers, every document type and
+  cross-provider playbook topics.
+- 16 **exact identifiers** (`X-Slack-Signature`, `users.lookupByEmail`,
+  `invoice.payment_failed`, `/crm/v3/objects/contacts/batch/upsert`). This slice was
+  added *after* the first run showed BM25 adding nothing, to test the one case BM25 is
+  supposed to win. It's reported separately for that reason.
+
+Metrics are per document: Hit@8 (any relevant document in the top 8 chunks), Recall@8
+and MRR. Labels are checked against the index before every run.
+
+**Lexical search first.** Postgres' `ts_rank` has no IDF, so common words such as
+"webhook" outranked the rare words that identify the right page. BM25 written in SQL
+(document frequencies from the GIN index, breadcrumb matches boosted) improved the
+natural-language set from Hit@8 0.70 / MRR 0.54 to 0.76 / 0.65, at 32 ms.
+
+**Results** (`voyage-4` embeddings, `rerank-3`; latency excludes the ~290 ms query
+embedding call, which every vector configuration pays):
+
+| Config | Hit@8 | Recall@8 | MRR | Identifiers Hit@8 / MRR | p50 ms |
+|---|---|---|---|---|---|
+| BM25 | 0.79 | 0.72 | 0.69 | 0.88 / 0.83 | 25 |
+| vector | 0.98 | 0.94 | 0.88 | 1.00 / 0.94 | 11 |
+| **vector + rerank** | **0.98** | **0.96** | **0.92** | **1.00 / 1.00** | 484 |
+| hybrid (RRF) | 0.89 | 0.84 | 0.81 | 1.00 / 0.97 | 38 |
+| hybrid + rerank | 0.98 | 0.96 | 0.92 | 1.00 / 1.00 | 615 |
+
+**What the numbers say.**
+- `voyage-4` handles exact identifiers well: vector search alone gets Hit@8 1.00 on that
+  slice. The usual argument for hybrid search didn't hold for this corpus and model.
+- Equal-weight RRF *hurt*. Fusing a much weaker ranking (BM25) with a strong one pushed
+  good vector hits down (Hit@8 0.98 → 0.89).
+- The reranker recovers the best ordering whichever candidates it gets. With it, hybrid
+  and vector-only tie exactly, and hybrid costs about 130 ms more.
+
+**Decision.**
+- **Default: vector search → `rerank-3`.** Same quality as hybrid + rerank, simpler and
+  faster.
+- **Keep BM25 as the fallback**, not as a fusion partner. It runs in plain SQL, so when
+  Voyage is unreachable (or before the index is embedded) search degrades to the
+  best keyword ranking instead of failing. The search trace records the fallback.
+- **Keep hybrid as a mode** for future comparisons (new models, a bigger corpus).
+
+**Consequences.**
+- Every search makes two Voyage calls (query embedding, rerank), about 0.8 s end to
+  end. That's fine for agent research, but not for keystroke-level autocomplete.
+- The golden set is near its ceiling (Hit@8 0.98). It can confirm a regression but no
+  longer separates good configurations, so it should grow harder as the agent's real
+  queries come in (Phase 3 can log them).
+- Contextual retrieval (§3.2) stays planned, not built: with Hit@8 already at 0.98 it
+  has to show a gain on a harder set before it earns its ingest cost.
+- One miss survives every configuration: "A customer disputed a payment with their bank"
+  finds the `dispute` object and event catalogs, but never the
+  `charge.dispute.created` event itself.

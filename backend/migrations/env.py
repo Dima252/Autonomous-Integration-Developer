@@ -4,7 +4,9 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy.engine import Connection
 
-import aidev.catalog.tables  # noqa: F401  (registers tables on the metadata)
+# Importing the table modules registers their tables on the shared metadata.
+import aidev.catalog.tables
+import aidev.rag.tables  # noqa: F401
 from aidev.config import get_settings
 from aidev.infra import postgres
 from aidev.infra.db import metadata

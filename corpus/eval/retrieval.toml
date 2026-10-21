@@ -1,0 +1,364 @@
+# Retrieval golden set. Each case is an information need as the Researcher agent would
+# phrase it, with the documents that answer it. A case passes Hit@k when any relevant
+# document is in the top k; Recall@k counts how many of them are.
+#
+# `providers` mirrors how agents search: scoped to the provider they're researching.
+# Cases without it search the whole index (cross-provider engineering questions).
+# Cases without a `slice` are natural-language questions.
+# Run: uv run python -m aidev.rag eval
+
+# --- Stripe -----------------------------------------------------------------------
+
+[[case]]
+query = "How do I verify that a webhook request really came from Stripe?"
+providers = ["stripe"]
+relevant = ["stripe/guide/webhooks", "stripe/guide/webhook-signature-errors", "stripe/guide/webhooks-quickstart"]
+
+[[case]]
+query = "Which event fires when a subscription invoice payment fails?"
+providers = ["stripe"]
+relevant = ["stripe/webhook_event/invoice.payment_failed", "stripe/guide/subscription-webhooks"]
+
+[[case]]
+query = "event when a customer cancels their subscription"
+providers = ["stripe"]
+relevant = ["stripe/webhook_event/customer.subscription.deleted", "stripe/guide/subscription-webhooks"]
+
+[[case]]
+query = "get notified when an invoice is paid successfully"
+providers = ["stripe"]
+relevant = ["stripe/webhook_event/invoice.paid"]
+
+[[case]]
+query = "Create a new customer with an email address"
+providers = ["stripe"]
+relevant = ["stripe/operation/PostCustomers"]
+
+[[case]]
+query = "Find a customer by their email"
+providers = ["stripe"]
+relevant = ["stripe/operation/GetCustomersSearch"]
+
+[[case]]
+query = "Issue a refund for a charge"
+providers = ["stripe"]
+relevant = ["stripe/operation/PostRefunds"]
+
+[[case]]
+query = "Store custom key-value data such as a VIP flag on a customer"
+providers = ["stripe"]
+relevant = ["stripe/guide/metadata", "stripe/operation/PostCustomersCustomer"]
+
+[[case]]
+query = "Safely retry a POST request without creating duplicate objects"
+providers = ["stripe"]
+relevant = ["stripe/guide/idempotent-requests"]
+
+[[case]]
+query = "list all objects page by page using starting_after"
+providers = ["stripe"]
+relevant = ["stripe/guide/pagination"]
+
+[[case]]
+query = "What happens when I send too many requests and get a 429?"
+providers = ["stripe"]
+relevant = ["stripe/guide/rate-limits"]
+
+[[case]]
+query = "How long does Stripe keep retrying a webhook delivery that failed?"
+providers = ["stripe"]
+relevant = ["stripe/guide/webhooks"]
+
+[[case]]
+query = "Return related objects inline instead of just their IDs"
+providers = ["stripe"]
+relevant = ["stripe/guide/expanding-objects"]
+
+[[case]]
+query = "Pin the API version my requests use"
+providers = ["stripe"]
+relevant = ["stripe/guide/versioning"]
+
+[[case]]
+query = "A customer disputed a payment with their bank"
+providers = ["stripe"]
+relevant = ["stripe/webhook_event/charge.dispute.created"]
+
+[[case]]
+query = "Checkout finished and the customer paid"
+providers = ["stripe"]
+relevant = ["stripe/webhook_event/checkout.session.completed"]
+
+# --- Slack ------------------------------------------------------------------------
+
+[[case]]
+query = "Post a message to a channel as a bot"
+providers = ["slack"]
+relevant = ["slack/operation/chat_postMessage", "slack/guide/chat-postmessage", "slack/guide/sending-messages"]
+
+[[case]]
+query = "Which OAuth scope does the app need to send messages?"
+providers = ["slack"]
+relevant = ["slack/guide/scope-chat-write", "slack/guide/chat-postmessage", "slack/operation/chat_postMessage"]
+
+[[case]]
+query = "Format message text with bold, links and user mentions"
+providers = ["slack"]
+relevant = ["slack/guide/formatting-text"]
+
+[[case]]
+query = "Build a rich message layout with sections and buttons"
+providers = ["slack"]
+relevant = ["slack/guide/block-kit"]
+
+[[case]]
+query = "Verify incoming requests using the signing secret"
+providers = ["slack"]
+relevant = ["slack/guide/verifying-requests"]
+
+[[case]]
+query = "Look up a user by their email address"
+providers = ["slack"]
+relevant = ["slack/operation/users_lookupByEmail"]
+
+[[case]]
+query = "Edit a message the app already posted"
+providers = ["slack"]
+relevant = ["slack/operation/chat_update"]
+
+[[case]]
+query = "Send a message in a channel that only one user can see"
+providers = ["slack"]
+relevant = ["slack/operation/chat_postEphemeral", "slack/guide/sending-messages"]
+
+[[case]]
+query = "How quickly must my app acknowledge Events API requests, and what happens if it doesn't?"
+providers = ["slack"]
+relevant = ["slack/guide/events-api", "slack/guide/events-api-http"]
+
+[[case]]
+query = "Post to a channel with just a webhook URL, without a bot token"
+providers = ["slack"]
+relevant = ["slack/guide/incoming-webhooks"]
+
+[[case]]
+query = "rate limit tiers and handling HTTP 429 responses"
+providers = ["slack"]
+relevant = ["slack/guide/rate-limits"]
+
+# --- GitHub -----------------------------------------------------------------------
+
+[[case]]
+query = "Validate the X-Hub-Signature-256 header"
+providers = ["github"]
+relevant = ["github/guide/validating-webhooks"]
+
+[[case]]
+query = "Trigger when someone opens a new issue in a repository"
+providers = ["github"]
+relevant = ["github/webhook_event/issues.opened"]
+
+[[case]]
+query = "React when a pull request is merged"
+providers = ["github"]
+relevant = ["github/webhook_event/pull_request.closed"]
+
+[[case]]
+query = "Create an issue in a repository"
+providers = ["github"]
+relevant = ["github/operation/issues/create"]
+
+[[case]]
+query = "Add a comment to an issue"
+providers = ["github"]
+relevant = ["github/operation/issues/create-comment"]
+
+[[case]]
+query = "Check how many API requests I have left this hour"
+providers = ["github"]
+relevant = ["github/operation/rate-limit/get", "github/guide/rate-limits"]
+
+[[case]]
+query = "Redeliver webhook deliveries that failed"
+providers = ["github"]
+relevant = ["github/guide/failed-webhooks", "github/operation/repos/redeliver-webhook-delivery", "github/operation/repos/list-webhook-deliveries"]
+
+[[case]]
+query = "commits pushed to a branch"
+providers = ["github"]
+relevant = ["github/webhook_event/push"]
+
+[[case]]
+query = "Iterate through paginated results using the Link header"
+providers = ["github"]
+relevant = ["github/guide/pagination"]
+
+[[case]]
+query = "Authenticate REST API requests with a token"
+providers = ["github"]
+relevant = ["github/guide/authentication"]
+
+# --- HubSpot ----------------------------------------------------------------------
+
+[[case]]
+query = "Search contacts by a property value"
+providers = ["hubspot"]
+relevant = ["hubspot/operation/post-/crm/v3/objects/contacts/search_doSearch", "hubspot/guide/search"]
+
+[[case]]
+query = "Create a contact"
+providers = ["hubspot"]
+relevant = ["hubspot/operation/post-/crm/v3/objects/contacts_create", "hubspot/guide/contacts"]
+
+[[case]]
+query = "Get notified when a contact property changes"
+providers = ["hubspot"]
+relevant = ["hubspot/webhook_event/contact.propertyChange", "hubspot/guide/webhooks", "hubspot/guide/private-app-webhooks"]
+
+[[case]]
+query = "Validate the v3 signature on webhook requests"
+providers = ["hubspot"]
+relevant = ["hubspot/guide/request-validation"]
+
+[[case]]
+query = "Associate a contact with a company"
+providers = ["hubspot"]
+relevant = ["hubspot/guide/associations", "hubspot/operation/put-/crm/v4/objects/{fromObjectType}/{fromObjectId}/associations/default/{toObjectType}/{toObjectId}_createDefault"]
+
+[[case]]
+query = "How many API calls can an app make per 10 seconds?"
+providers = ["hubspot"]
+relevant = ["hubspot/guide/usage-guidelines"]
+
+[[case]]
+query = "Create or update many contacts at once, matched by email"
+providers = ["hubspot"]
+relevant = ["hubspot/operation/post-/crm/v3/objects/contacts/batch/upsert_upsert"]
+
+[[case]]
+query = "Create a custom property on deals"
+providers = ["hubspot"]
+relevant = ["hubspot/operation/post-/crm/v3/properties/{objectType}_create", "hubspot/guide/properties"]
+
+# --- Cross-provider engineering practice --------------------------------------------
+
+[[case]]
+query = "deduplicate webhook events that are delivered more than once"
+relevant = ["general/playbook/idempotency"]
+
+[[case]]
+query = "respond to the webhook immediately and do the slow work in the background"
+relevant = ["general/playbook/fast-ack-async-processing"]
+
+[[case]]
+query = "exponential backoff with jitter for transient errors"
+relevant = ["general/playbook/retries-and-backoff"]
+
+[[case]]
+query = "where should API keys and signing secrets be stored?"
+relevant = ["general/playbook/secrets-and-configuration", "stripe/guide/api-keys", "github/guide/credential-security"]
+
+[[case]]
+query = "an outbound HTTP call hangs forever"
+relevant = ["general/playbook/timeouts"]
+
+# --- Exact identifiers --------------------------------------------------------------
+# Added after the first full run, which found BM25 adding nothing once vector search and
+# reranking were in place. These test the case BM25 exists for: an agent pasting an
+# exact name from an error, a header or another doc. Reported as a separate slice.
+
+[[case]]
+slice = "identifier"
+query = "invoice.payment_failed payload"
+providers = ["stripe"]
+relevant = ["stripe/webhook_event/invoice.payment_failed"]
+
+[[case]]
+slice = "identifier"
+query = "Stripe-Signature header"
+providers = ["stripe"]
+relevant = ["stripe/guide/webhooks", "stripe/guide/webhook-signature-errors", "stripe/guide/webhooks-quickstart"]
+
+[[case]]
+slice = "identifier"
+query = "SignatureVerificationError"
+providers = ["stripe"]
+relevant = ["stripe/guide/webhook-signature-errors", "stripe/guide/webhooks-quickstart"]
+
+[[case]]
+slice = "identifier"
+query = "Idempotency-Key"
+providers = ["stripe"]
+relevant = ["stripe/guide/idempotent-requests", "stripe/guide/errors"]
+
+[[case]]
+slice = "identifier"
+query = "starting_after"
+providers = ["stripe"]
+relevant = ["stripe/guide/pagination"]
+
+[[case]]
+slice = "identifier"
+query = "GetCustomersSearch"
+providers = ["stripe"]
+relevant = ["stripe/operation/GetCustomersSearch"]
+
+[[case]]
+slice = "identifier"
+query = "X-Slack-Signature"
+providers = ["slack"]
+relevant = ["slack/guide/verifying-requests"]
+
+[[case]]
+slice = "identifier"
+query = "users.lookupByEmail"
+providers = ["slack"]
+relevant = ["slack/operation/users_lookupByEmail"]
+
+[[case]]
+slice = "identifier"
+query = "chat.update"
+providers = ["slack"]
+relevant = ["slack/operation/chat_update"]
+
+[[case]]
+slice = "identifier"
+query = "chat:write"
+providers = ["slack"]
+relevant = ["slack/guide/scope-chat-write", "slack/guide/chat-postmessage", "slack/operation/chat_postMessage"]
+
+[[case]]
+slice = "identifier"
+query = "X-GitHub-Delivery header"
+providers = ["github"]
+relevant = ["github/guide/webhook-best-practices"]
+
+[[case]]
+slice = "identifier"
+query = "x-ratelimit-remaining"
+providers = ["github"]
+relevant = ["github/guide/rate-limits", "github/guide/rest-best-practices", "github/guide/troubleshooting"]
+
+[[case]]
+slice = "identifier"
+query = "pull_request closed merged"
+providers = ["github"]
+relevant = ["github/webhook_event/pull_request.closed"]
+
+[[case]]
+slice = "identifier"
+query = "X-HubSpot-Signature-v3"
+providers = ["hubspot"]
+relevant = ["hubspot/guide/request-validation"]
+
+[[case]]
+slice = "identifier"
+query = "contact.propertyChange"
+providers = ["hubspot"]
+relevant = ["hubspot/webhook_event/contact.propertyChange"]
+
+[[case]]
+slice = "identifier"
+query = "/crm/v3/objects/contacts/batch/upsert"
+providers = ["hubspot"]
+relevant = ["hubspot/operation/post-/crm/v3/objects/contacts/batch/upsert_upsert"]
