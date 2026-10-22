@@ -2,7 +2,7 @@
 
 The web UI renders an integration run purely from its event stream
 (`GET /runs/{id}/events`, [architecture §5](architecture.md#5-streaming-r4)). This page
-pins down what each event's `data` carries, so the Phase 3 agent graph emits exactly what
+pins down what each event's `data` carries, so the agent graph (Phase 4) emits exactly what
 the workspace can show. The scripted sample run (`frontend/src/data/sample-run.ts`) follows
 this contract, and `frontend/src/lib/run-state.ts` is the reducer that reads it.
 
@@ -38,7 +38,7 @@ Every event has the envelope from `aidev.events.bus`:
 | `check.result` | `iteration: int`, `check: install\|ruff\|pyright\|grounding\|pytest\|security\|review`, `status: pass\|fail\|skip`, `summary: str`, `output?: str` | Checks matrix and output panel |
 | `lesson.learned` | `lesson: str`, `provider: str` | Spec & decisions › Learned |
 | `run.completed` | `summary: str`, `iterations: int`, `cost_usd: float`, `duration_s: float` | Status "Completed" |
-| `run.failed` | `reason: str` (`not_implemented` while Phase 3 is pending) | Status "Stopped" and an explanation |
+| `run.failed` | `reason: str` (`not_implemented` until the agent graph exists) | Status "Stopped" and an explanation |
 
 ## Rules the reducer relies on
 

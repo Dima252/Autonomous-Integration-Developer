@@ -20,7 +20,8 @@ and what it costs us.
 | 013 | Spend metering with hard monthly caps on Anthropic and Voyage | Accepted |
 | 014 | Chat path: one SSE response per message; run events on a resumable stream | Accepted |
 | 015 | Mission-control UI, built on the event contract before the agents exist | Accepted |
-| 016 | Hosting: one AWS Lightsail instance running docker compose, CD from GitHub | Accepted |
+| 016 | Hosting: one AWS Lightsail instance running docker compose, CD from GitHub | Amended by 017 |
+| 017 | Public demo: static replay of recorded real runs on S3 + CloudFront; live mode on demand | Accepted |
 
 ---
 
@@ -261,7 +262,7 @@ embedding call, which every vector configuration pays):
   end. That's fine for agent research, but not for keystroke-level autocomplete.
 - The golden set is near its ceiling (Hit@8 0.98). It can confirm a regression but no
   longer separates good configurations, so it should grow harder as the agent's real
-  queries come in (Phase 3 can log them).
+  queries come in (the agent phase can log them).
 - Contextual retrieval (§3.2) stays planned, not built: with Hit@8 already at 0.98 it
   has to show a gain on a harder set before it earns its ingest cost.
 - One miss survives every configuration: "A customer disputed a payment with their bank"
@@ -428,7 +429,7 @@ request. Runs last minutes, outlive any request, and must survive a page refresh
 - Chat replies aren't resumable: a dropped connection loses the rest of that answer (the
   saved part survives). That's fine for replies of a few seconds.
 - An integration task currently ends at `run.failed` with reason `not_implemented`. The
-  stream, the run record and the UI contract are in place for Phase 3's worker.
+  stream, the run record and the UI contract are in place for the worker.
 - Measured end to end: a greeting returns in ~30 ms for $0. A docs answer costs about
   $0.0006 (~4.5K tokens of excerpts) and its text starts in ~3 s, most of it the
   classifier and the search.
@@ -437,7 +438,7 @@ request. Runs last minutes, outlive any request, and must survive a page refresh
 
 **Context.** The project's claim is an agent that researches, codes, tests and fixes
 itself where you can watch it. A chat window with a spinner hides exactly that. The agent
-graph (Phase 3) and the self-healing loop (Phase 4) don't exist yet, but the event format
+graph and the self-healing loop don't exist yet, but the event format
 they will stream does (§5).
 
 **Decision.**
@@ -457,7 +458,7 @@ they will stream does (§5).
 - **The UI is built now, against the contract.** A scripted sample run (three
   iterations: a missing dependency, then a signature verified on re-serialized JSON, then
   green) exercises every view. It's labeled "Scripted sample" wherever it shows. The
-  contract it follows is written down in [ui-events.md](ui-events.md), so Phase 3 has a
+  contract it follows is written down in [ui-events.md](ui-events.md), so the agent graph has a
   spec to emit against.
 - **The sample run is the default for visitors.** It needs no backend and costs nothing,
   which is the replay mode the deployment plan calls for. Live mode is one click away.
@@ -468,20 +469,23 @@ they will stream does (§5).
   color, `prefers-reduced-motion`, and a stacked layout for phones.
 
 **Consequences.**
-- Phase 3's graph nodes must emit the documented events. Anything else just won't show.
+- The agent graph's nodes must emit the documented events. Anything else just won't show.
 - Monaco loads from a CDN on first use of the Code tab. That keeps the bundle small but
   adds a network dependency to that tab.
 - The sample run can drift from what the real agents do. It should be replaced by a
-  recorded real run once Phase 4 produces one.
+  recorded real run once the agents produce one (ADR 017).
 
 ## 016: Hosting: one AWS Lightsail instance running docker compose, CD from GitHub
+
+**Amended by ADR 017:** the instance now serves live mode only, and is created on demand.
+The always-on public demo is static.
 
 **Context.** The demo needs to be public, with HTTPS, and redeploy on every merge. Later
 phases also run generated code in a Docker sandbox, so the host must run Docker itself,
 which rules out platform hosts (Vercel, Render, Railway). The plan was an Oracle Cloud
 Always Free VM, but the owner's other project runs on AWS, and one cloud account is
 easier to manage. The stack needs ~250 MB of RAM idle (measured locally), plus headroom
-for image pulls and, from Phase 4, sandbox containers.
+for image pulls and, from Phase 3, sandbox containers.
 
 **Decision.**
 - **Host: Lightsail, 2 GB Linux plan (~$12/month flat, public IPv4 included).** An EC2
@@ -511,3 +515,42 @@ for image pulls and, from Phase 4, sandbox containers.
   (`bootstrap-data.sh`), and snapshots are there if that stops being true.
 - Moving to EC2 or another VM later means copying the same compose file. Nothing here is
   Lightsail-specific beyond the console steps.
+
+## 017: Public demo: static replay of recorded real runs on S3 + CloudFront; live mode on demand
+
+**Context.** The hosted demo exists for recruiters and hiring managers, who give it about
+a minute. A live run takes several minutes, can fail in front of them, and spends API
+money on every visit. Only the owner runs real tasks, and does so locally. The UI already
+replays runs through the same reducer live mode uses (ADR 015), and the event log is a
+documented format ([ui-events.md](ui-events.md)). The project aims to be free or nearly
+free, and stays on AWS (ADR 016).
+
+**Decision.**
+- **The public demo is static.** Next.js builds the UI as static files
+  (`output: "export"`). They sit in a private S3 bucket, served by CloudFront with origin
+  access control, over HTTPS at the CloudFront domain or a custom one later.
+- **It replays recorded real runs.** Tasks run locally, and each finished run's event log
+  is exported to a JSON file shipped with the UI. Recorded runs are labeled as recorded,
+  and the scripted sample stays, labeled as scripted.
+- **With no backend, chat says so.** It shows recorded conversations and states that live
+  mode is offline, rather than failing.
+- **Live mode is on demand.** The Lightsail stack from ADR 016, with the UI and API on one
+  origin at its own address, is created for an interview or a live test and deleted
+  afterwards. It is billed by the hour, and a snapshot keeps its data in between for cents.
+- **CD publishes the static UI** with `aws s3 sync` and a CloudFront invalidation. It uses
+  an IAM role that GitHub Actions assumes through OIDC, scoped to the one bucket and
+  distribution, so no long-lived AWS keys are stored in GitHub.
+- **CI tests the static build.** A Playwright test opens it with no backend running and
+  plays a replay to the end.
+- **An AWS Budgets alert** reports spending before it adds up.
+
+**Consequences.**
+- The public demo costs ~$0/month (CloudFront's always-free tier, cents of S3), has no
+  server to patch or keep up, and exposes no API keys. A passcode is only needed while
+  the live server exists.
+- Visitors can't run their own tasks. The recorded runs, the demo video, and a live
+  session on request cover that.
+- Recorded runs go stale as the agents improve. Re-record them before sharing the link.
+- The UI can't depend on server features (server rendering, API routes, dynamic routes).
+  Links to a run use a query string (`/?run=<id>`).
+- Recording needs no new format: it is the event log the UI already consumes.
