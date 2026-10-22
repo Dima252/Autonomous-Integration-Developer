@@ -10,6 +10,25 @@ The public demo is the UI as static files: no backend, no API keys, ~$0/month
 | GitHub OIDC provider | Lets GitHub Actions sign in to AWS with a short-lived token instead of stored keys. |
 | Deploy role | Assumable only by workflow runs on `main` of this repository. It can replace the bucket's files and invalidate this distribution, nothing else. |
 
+## Status
+
+As of 2026-10-23 the code, the template and the CD job are merged, and nothing is
+published yet:
+
+- [x] Template validated by CloudFormation (us-east-1, account `391732005061`).
+- [x] Stack `aidev-demo` exists in `REVIEW_IN_PROGRESS` with change set `initial`:
+  the 6 resources above, no pre-deployment validation findings. Until it's executed
+  nothing is built and nothing is billed.
+- [ ] Execute the change set: console → CloudFormation (us-east-1) → `aidev-demo` →
+  Change sets → `initial` → Execute. CloudFront takes ~5 minutes.
+- [ ] Set the `DEMO_*` GitHub variables from the stack outputs (table below).
+- [ ] Run the Deploy workflow on `main` by hand for the first publish, then open
+  `DEMO_URL`: the sample run plays, and Live says it's offline.
+- [ ] Tick "Static public demo" in the README roadmap and add the demo link.
+
+Locally, the AWS CLI is signed in through the `auratrade` profile (`aws login`), so
+pass `--profile auratrade`. The default profile has no credentials.
+
 ## Create it
 
 With AWS credentials for the account (us-east-1 keeps everything next to CloudFront's

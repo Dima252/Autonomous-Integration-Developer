@@ -8,8 +8,9 @@ pass. You watch every step stream live.
 
 > **Status:** Phase 2 in progress. Done: the LLM layer with spend caps, the two-tier
 > router, the streaming chat API (small talk, cited docs answers, run events), the
-> mission-control UI and the on-demand live-mode server. Next: the static public demo on
-> AWS. See the [roadmap](#roadmap).
+> mission-control UI, the on-demand live-mode server, and the static public demo's code,
+> infrastructure template and CD. Next: create the demo's AWS stack and publish it
+> ([where it stands](infra/aws/README.md#status)). See the [roadmap](#roadmap).
 
 ![Mission control: chat on the left; on the right the agent graph mid-run, with the
 validator failed and the diagnostician working on the fix](docs/images/mission-control.png)
