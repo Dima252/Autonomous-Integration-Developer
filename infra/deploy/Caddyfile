@@ -1,0 +1,20 @@
+# One origin: the UI at /, the API under /api (prefix stripped, since the API's routes
+# sit at its root). Caddy gets and renews the TLS certificate for SITE_ADDRESS itself.
+{$SITE_ADDRESS} {
+	# The API isn't compressed: encoding would hold back SSE events until a buffer fills.
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy web:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

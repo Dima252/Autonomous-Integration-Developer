@@ -20,6 +20,7 @@ and what it costs us.
 | 013 | Spend metering with hard monthly caps on Anthropic and Voyage | Accepted |
 | 014 | Chat path: one SSE response per message; run events on a resumable stream | Accepted |
 | 015 | Mission-control UI, built on the event contract before the agents exist | Accepted |
+| 016 | Hosting: one AWS Lightsail instance running docker compose, CD from GitHub | Accepted |
 
 ---
 
@@ -472,3 +473,41 @@ they will stream does (§5).
   adds a network dependency to that tab.
 - The sample run can drift from what the real agents do. It should be replaced by a
   recorded real run once Phase 4 produces one.
+
+## 016: Hosting: one AWS Lightsail instance running docker compose, CD from GitHub
+
+**Context.** The demo needs to be public, with HTTPS, and redeploy on every merge. Later
+phases also run generated code in a Docker sandbox, so the host must run Docker itself,
+which rules out platform hosts (Vercel, Render, Railway). The plan was an Oracle Cloud
+Always Free VM, but the owner's other project runs on AWS, and one cloud account is
+easier to manage. The stack needs ~250 MB of RAM idle (measured locally), plus headroom
+for image pulls and, from Phase 4, sandbox containers.
+
+**Decision.**
+- **Host: Lightsail, 2 GB Linux plan (~$12/month flat, public IPv4 included).** An EC2
+  t4g.small with its disk and public IPv4 costs ~$17–18/month. AWS's free tier no longer
+  covers an account more than six to twelve months old. The 1 GB plan is too tight once
+  the sandbox lands. IPv6-only plans are cheaper, but GitHub-hosted runners have no IPv6.
+- **The same compose model as development.** [infra/deploy/compose.yml](../infra/deploy/compose.yml)
+  runs Caddy, the UI, the API, Postgres and Redis. Only Caddy publishes ports.
+- **One origin.** Caddy serves the UI at `/` and the API under `/api` (prefix stripped),
+  so there's no CORS in production. Caddy obtains the certificate itself. Without a
+  domain, sslip.io maps the static IP to a hostname.
+- **Images on GHCR, built by Actions.** The Deploy workflow runs after CI passes on a push
+  to `main`, tags each image with its commit, and rolls the VM out over SSH with a
+  deploy-only key and a pinned host key. The registry login on the VM uses the job's
+  short-lived token.
+- **Secrets stay on the VM.** API keys and the database password live only in
+  `/opt/aidev/.env`. GitHub holds just the SSH credentials.
+- **Behind the proxy, uvicorn trusts forwarded headers**, so the per-IP chat rate limit
+  sees visitors' addresses rather than Caddy's.
+
+**Consequences.**
+- ~$12/month, the project's first fixed cost. The per-call Anthropic and Voyage caps
+  (ADR 013) still bound the variable spend.
+- One instance means a restart is downtime, and there's no failover. That's acceptable
+  for a demo. Rollback is `deploy.sh <older-sha>`.
+- The data lives on the instance's disk. It can all be rebuilt from the repo
+  (`bootstrap-data.sh`), and snapshots are there if that stops being true.
+- Moving to EC2 or another VM later means copying the same compose file. Nothing here is
+  Lightsail-specific beyond the console steps.
