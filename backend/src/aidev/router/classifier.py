@@ -21,12 +21,15 @@ Intents:
 it can do, who made it), and requests unrelated to APIs or integrations.
 - docs_question: asks how an API or integration practice works, or for a fact or a \
 short example: endpoints, events, payloads, auth, scopes, signatures, rate limits, \
-pagination, retries. Wants an answer, not a working project.
-- integration_task: asks to build, write or generate something that runs: an \
-integration, automation, webhook handler, sync job, bot or script, with enough detail \
-to start (a goal, and at least one system).
+pagination, retries. A request to write a single function or snippet for one API \
+mechanism (e.g. "write a function that verifies a GitHub webhook signature") belongs \
+here too. Wants an answer, not a working project.
+- integration_task: asks to build, write or generate something that runs on its own: \
+an integration, automation, webhook handler, service, sync job, bot or script, with \
+enough detail to start (a goal, and at least one system).
 - followup_edit: changes the integration currently being built (only possible when \
-the state says a run is active), e.g. "send it to Discord instead", "also add retries".
+the state says a run is active), e.g. "send it to Discord instead", "also add retries", \
+or a short "ok"/"yes" accepting a change the assistant just proposed.
 - clarify: wants something built but is too vague to start: no goal, or no way to tell \
 which systems are involved.
 

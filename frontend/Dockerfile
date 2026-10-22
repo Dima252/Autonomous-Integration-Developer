@@ -1,5 +1,6 @@
-# UI image: Next.js standalone server. NEXT_PUBLIC_API_URL is left unset so the bundle
-# calls /api on its own origin, which Caddy routes to the backend.
+# UI image for the live server: the static export (ADR 017) inside Caddy, which also
+# terminates TLS and proxies /api to the backend (infra/deploy/Caddyfile, mounted by
+# compose). NEXT_PUBLIC_API_URL is left unset so the bundle calls /api on its own origin.
 
 FROM node:24-slim AS build
 WORKDIR /app
@@ -10,11 +11,5 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 
-FROM node:24-slim
-WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
-COPY --from=build --chown=node /app/.next/standalone ./
-COPY --from=build --chown=node /app/.next/static ./.next/static
-USER node
-EXPOSE 3000
-CMD ["node", "server.js"]
+FROM caddy:2-alpine
+COPY --from=build /app/out /srv

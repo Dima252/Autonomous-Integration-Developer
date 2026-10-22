@@ -49,13 +49,13 @@ TEMPLATES: dict[str, str] = {
 
 RUN_REPLY = (
     "Got it: that's an integration task{systems}. I've opened run `{run}` for it. The "
-    "agents that research the docs, write the code and test it arrive in Phase 3 of this "
+    "agents that research the docs, write the code and test it arrive in Phase 4 of this "
     "project, so for now the run is recorded and stops here."
 )
 
 EDIT_REPLY = (
     "That's a change to the integration in progress{systems}. Applying edits to a run "
-    "arrives with the agent graph in Phase 3."
+    "arrives with the agent graph in Phase 4."
 )
 
 DEGRADED_REPLY = "I can't reach the language model right now, so I can't answer that. {why}"

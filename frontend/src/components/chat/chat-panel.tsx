@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowUp, Play, Radio, Sparkles } from "lucide-react";
+import { ArrowUp, Play, Radio, Sparkles, WifiOff } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { Button, Kbd } from "../ui";
 import { Message } from "./message";
@@ -15,6 +15,7 @@ export const EXAMPLES = [
 
 export function ChatPanel({
   mode,
+  online,
   messages,
   sending,
   onSend,
@@ -23,6 +24,7 @@ export function ChatPanel({
   onPlaySample,
 }: {
   mode: "sample" | "live";
+  online: boolean | null;
   messages: ChatMessage[];
   sending: boolean;
   onSend: (text: string) => void;
@@ -33,6 +35,7 @@ export function ChatPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const last = messages.at(-1);
   const lastLength = last?.content.length ?? 0;
+  const offline = online === false;
 
   // Follow the conversation while it grows, unless the reader scrolled up.
   useEffect(() => {
@@ -46,7 +49,7 @@ export function ChatPanel({
     <section aria-label="Chat" className="flex h-full min-h-0 flex-col">
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
         {messages.length === 0 ? (
-          <Welcome mode={mode} onSend={onSend} onPlaySample={onPlaySample} />
+          <Welcome mode={mode} offline={offline} onSend={onSend} onPlaySample={onPlaySample} />
         ) : (
           <ol className="flex flex-col gap-5">
             {messages.map((m) => (
@@ -55,14 +58,30 @@ export function ChatPanel({
           </ol>
         )}
       </div>
-      {mode === "live" ? (
+      {mode === "live" && offline ? (
+        // With no conversation yet, the welcome card already says this.
+        messages.length > 0 && (
+          <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+            <p className="text-xs text-muted">Live mode is offline right now.</p>
+            <Button variant="primary" size="sm" onClick={onPlaySample} className="shrink-0 whitespace-nowrap">
+              <Play size={14} aria-hidden="true" /> Watch the sample run
+            </Button>
+          </div>
+        )
+      ) : mode === "live" ? (
         <Composer sending={sending} onSend={onSend} />
       ) : (
         <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
-          <p className="text-xs text-muted">This is a scripted sample run. Chat with the real backend in Live mode.</p>
-          <Button variant="primary" size="sm" onClick={onGoLive} className="shrink-0 whitespace-nowrap">
-            <Radio size={14} aria-hidden="true" /> Try it live
-          </Button>
+          <p className="text-xs text-muted">
+            {offline
+              ? "This is a scripted sample run in the real event format. Live mode runs on demand."
+              : "This is a scripted sample run. Chat with the real backend in Live mode."}
+          </p>
+          {!offline && (
+            <Button variant="primary" size="sm" onClick={onGoLive} className="shrink-0 whitespace-nowrap">
+              <Radio size={14} aria-hidden="true" /> Try it live
+            </Button>
+          )}
         </div>
       )}
     </section>
@@ -71,10 +90,12 @@ export function ChatPanel({
 
 function Welcome({
   mode,
+  offline,
   onSend,
   onPlaySample,
 }: {
   mode: "sample" | "live";
+  offline: boolean;
   onSend: (text: string) => void;
   onPlaySample: () => void;
 }) {
@@ -90,7 +111,20 @@ function Welcome({
           researches the real API docs, writes the code, tests it and fixes its own mistakes.
         </p>
       </div>
-      {mode === "live" ? (
+      {mode === "live" && offline ? (
+        <div role="status" className="rounded-lg border border-border bg-raised p-4">
+          <p className="flex items-center gap-2 text-sm font-medium text-text">
+            <WifiOff size={14} aria-hidden="true" /> Live mode is offline
+          </p>
+          <p className="mt-1.5 text-sm text-muted">
+            The live backend runs on demand, and it isn&apos;t running right now. The sample run
+            shows a complete run in the same event format the agents stream.
+          </p>
+          <Button variant="primary" size="sm" onClick={onPlaySample} className="mt-3">
+            <Play size={14} aria-hidden="true" /> Watch the sample run
+          </Button>
+        </div>
+      ) : mode === "live" ? (
         <ul className="flex flex-col gap-2" aria-label="Example requests">
           {EXAMPLES.map((e) => (
             <li key={e}>

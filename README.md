@@ -8,8 +8,9 @@ pass. You watch every step stream live.
 
 > **Status:** Phase 2 in progress. Done: the LLM layer with spend caps, the two-tier
 > router, the streaming chat API (small talk, cited docs answers, run events), the
-> mission-control UI and the on-demand live-mode server. Next: the static public demo on
-> AWS. See the [roadmap](#roadmap).
+> mission-control UI, the on-demand live-mode server, and the static public demo's code,
+> infrastructure template and CD. Next: create the demo's AWS stack and publish it
+> ([where it stands](infra/aws/README.md#status)). See the [roadmap](#roadmap).
 
 ![Mission control: chat on the left; on the right the agent graph mid-run, with the
 validator failed and the diagnostician working on the fix](docs/images/mission-control.png)
@@ -37,7 +38,7 @@ Full design docs:
 - [Decision log](docs/decisions.md): the major design decisions and their trade-offs
 
 - **Cost-aware routing.** Rules and embedding matching answer small talk without waiting
-  for an LLM (~0.3 s instead of ~1.3 s). A small model classifies the rest: 109 of 109
+  for an LLM (~0.3 s instead of ~1.3 s). A small model classifies the rest: 111 of 111
   correct on the golden set, typos and prompt-injection attempts included. Only real
   integration tasks start the agent graph. Every paid call is metered against hard
   monthly caps.
@@ -125,6 +126,7 @@ uv run pytest -m integration         # needs docker compose up
 
 cd ../frontend
 npm run lint && npm run typecheck && npm test && npm run build
+npm run e2e                          # Playwright on the static build, no backend
 ```
 
 ## Roadmap
@@ -174,7 +176,8 @@ Live mode ──► Lightsail (on demand) ──► Caddy ─┬─► UI
   (~$12/month, billed by the hour). It's created for an interview or a live test and
   deleted afterwards. A VM is needed because platform hosts can't run the Docker sandbox
   that executes generated code. Setup and teardown are in
-  [infra/deploy/](infra/deploy/README.md).
+  [infra/deploy/](infra/deploy/README.md), and the public demo's in
+  [infra/aws/](infra/aws/README.md).
 - **Real use:** the full stack runs locally with `docker compose`.
 - **Continuous deployment:** once CI passes on `main`, GitHub Actions publishes the
   static UI to S3 through an IAM role it assumes with OIDC, so no AWS keys are stored in
@@ -204,6 +207,7 @@ corpus/playbook/      Engineering playbook (indexed alongside provider docs)
 corpus/router/        Labeled example messages for the router's tier 0
 corpus/eval/          Golden sets for evaluation
 infra/postgres/       DB init scripts (pgvector)
-infra/deploy/         Production compose stack, Caddyfile, VM scripts, runbook
-.github/workflows/    CI, and the deploy to the VM
+infra/aws/            Public demo stack: S3 + CloudFront + GitHub OIDC deploy role, runbook
+infra/deploy/         Live-mode compose stack, Caddyfile, VM scripts, runbook
+.github/workflows/    CI with end-to-end tests; deploys of the static demo and the VM
 ```

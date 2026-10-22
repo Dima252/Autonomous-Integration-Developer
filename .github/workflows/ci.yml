@@ -82,3 +82,16 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # The static build with no backend, as the public demo serves it (ADR 017).
+      - name: End-to-end tests
+        run: |
+          npx playwright install --with-deps chromium
+          npm run e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: frontend/test-results/
+          retention-days: 7

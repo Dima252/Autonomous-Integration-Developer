@@ -23,6 +23,7 @@ export function Workspace({
   onTab,
   theme,
   mode,
+  offline,
   sample,
   replay,
   onPlaySample,
@@ -32,6 +33,7 @@ export function Workspace({
   onTab: (tab: Tab) => void;
   theme: "dark" | "light";
   mode: "sample" | "live";
+  offline: boolean;
   sample: SampleRun;
   replay: ReplayControls;
   onPlaySample: () => void;
@@ -96,7 +98,7 @@ export function Workspace({
         {tab === "sources" && <SourcesView run={run} />}
         {tab === "ledger" && <LedgerView run={run} />}
         {mode === "live" && run.status !== "running" && run.status !== "completed" && (
-          <LiveOverlay run={run} onPlaySample={onPlaySample} />
+          <LiveOverlay run={run} offline={offline} onPlaySample={onPlaySample} />
         )}
       </div>
       {mode === "sample" && <ReplayBar sample={sample} replay={replay} />}
@@ -128,7 +130,7 @@ function RunHeader({ run, mode }: { run: RunView; mode: "sample" | "live" }) {
         </p>
       </div>
       {mode === "sample" && (
-        <Badge tone="warn" title="Played from a recorded script that uses the real event format. The live agent graph arrives in Phase 3.">
+        <Badge tone="warn" title="Played from a recorded script that uses the real event format. The live agent graph arrives in Phase 4.">
           Scripted sample
         </Badge>
       )}
@@ -148,19 +150,32 @@ function RunHeader({ run, mode }: { run: RunView; mode: "sample" | "live" }) {
   );
 }
 
-function LiveOverlay({ run, onPlaySample }: { run: RunView; onPlaySample: () => void }) {
+function LiveOverlay({ run, offline, onPlaySample }: { run: RunView; offline: boolean; onPlaySample: () => void }) {
   const notBuilt = run.status === "failed" && run.failure === "not_implemented";
+  if (offline && !notBuilt) {
+    return (
+      <Overlay title="Live mode is offline" onPlaySample={onPlaySample}>
+        The live backend runs on demand, and it isn&apos;t running right now. The sample run plays a complete
+        run in the same event format the agents stream: every agent step, the code at each iteration, the checks
+        and the sources.
+      </Overlay>
+    );
+  }
+  return (
+    <Overlay title={notBuilt ? "The run was recorded, and stops here for now" : "No run yet"} onPlaySample={onPlaySample}>
+      {notBuilt
+        ? "The agents that research, write, test and fix the code are Phase 4 of this project. The run, its event stream and this workspace are already wired up. The sample run shows what they will stream."
+        : "Ask for an integration in the chat and its run streams here: every agent step, the code at each iteration, the checks and the sources it used."}
+    </Overlay>
+  );
+}
+
+function Overlay({ title, children, onPlaySample }: { title: string; children: ReactNode; onPlaySample: () => void }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-bg/70 p-6 backdrop-blur-[2px]">
       <div className="max-w-md rounded-xl border border-border bg-panel p-5 shadow-xl">
-        <h3 className="text-base font-semibold text-text">
-          {notBuilt ? "The run was recorded, and stops here for now" : "No run yet"}
-        </h3>
-        <p className="mt-2 text-sm text-muted">
-          {notBuilt
-            ? "The agents that research, write, test and fix the code are Phase 3 of this project. The run, its event stream and this workspace are already wired up. The sample run shows what they will stream."
-            : "Ask for an integration in the chat and its run streams here: every agent step, the code at each iteration, the checks and the sources it used."}
-        </p>
+        <h3 className="text-base font-semibold text-text">{title}</h3>
+        <p className="mt-2 text-sm text-muted">{children}</p>
         <Button variant="primary" className="mt-4" onClick={onPlaySample}>
           <Play size={14} aria-hidden="true" /> Watch the sample run
         </Button>

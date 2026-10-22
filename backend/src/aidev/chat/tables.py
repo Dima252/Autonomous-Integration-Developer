@@ -39,7 +39,7 @@ messages = Table(
     Index(None, "conversation_id", "id"),
 )
 
-# An integration run. Phase 3 adds the agent graph that executes it; its LangGraph
+# An integration run. Phase 4 adds the agent graph that executes it; its LangGraph
 # checkpoints are keyed by this id.
 runs = Table(
     "runs",

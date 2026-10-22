@@ -1,7 +1,11 @@
 name: Deploy
 
-# After CI passes on main: build both images, push them to GHCR, and roll the VM out
-# to them over SSH (ADR 016). Until the DEPLOY_* secrets exist, it stops after pushing.
+# After CI passes on main:
+# - demo: build the static UI and publish it to S3 + CloudFront, signing in to AWS
+#   through GitHub's OIDC token (ADR 017). Skipped until the DEMO_* variables exist.
+# - images + deploy: build both images, push them to GHCR, and roll the live-mode VM
+#   out to them over SSH (ADR 016). Until the DEPLOY_* secrets exist, it stops after
+#   pushing.
 on:
   workflow_run:
     workflows: [CI]
@@ -17,6 +21,86 @@ env:
   SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
+  demo:
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the OIDC token that infra/aws/demo.yml's deploy role trusts
+    # No `environment:` here: it would change the token's subject from
+    # ref:refs/heads/main, which is what the deploy role's trust policy checks.
+    env:
+      ROLE: ${{ vars.DEMO_ROLE_ARN }}
+      BUCKET: ${{ vars.DEMO_BUCKET }}
+      DISTRIBUTION: ${{ vars.DEMO_DISTRIBUTION_ID }}
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check for a demo target
+        id: target
+        working-directory: .
+        run: |
+          if [ -n "$ROLE" ] && [ -n "$BUCKET" ] && [ -n "$DISTRIBUTION" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The DEMO_* variables aren't set; the static demo isn't published."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.target.outputs.ready
+        with:
+          ref: ${{ env.SHA }}
+
+      - uses: actions/setup-node@v4
+        if: steps.target.outputs.ready
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build
+        if: steps.target.outputs.ready
+        run: |
+          npm ci
+          npm run build
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.target.outputs.ready
+        with:
+          role-to-assume: ${{ env.ROLE }}
+          aws-region: ${{ vars.DEMO_REGION || 'us-east-1' }}
+
+      # Hashed assets first and never deleted, so a page loaded before this deploy can
+      # still fetch its chunks. Then everything else, revalidated on every load.
+      - name: Upload
+        if: steps.target.outputs.ready
+        run: |
+          aws s3 sync out/_next/static "s3://$BUCKET/_next/static" \
+            --cache-control "public, max-age=31536000, immutable"
+          aws s3 sync out "s3://$BUCKET" --exclude "_next/static/*" --delete \
+            --cache-control "no-cache"
+
+      - name: Invalidate the CDN cache
+        if: steps.target.outputs.ready
+        run: |
+          id=$(aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" \
+            --paths "/*" --query Invalidation.Id --output text)
+          aws cloudfront wait invalidation-completed --distribution-id "$DISTRIBUTION" --id "$id"
+
+      # The page loads, and /api has nothing behind it, so the UI shows live mode offline.
+      - name: Smoke test
+        if: steps.target.outputs.ready && vars.DEMO_URL
+        run: |
+          curl -fsS -o /dev/null "${{ vars.DEMO_URL }}/"
+          status=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.DEMO_URL }}/api/health")
+          [ "$status" != "200" ] || { echo "::error::/api/health answered 200 on the static demo"; exit 1; }
+
   images:
     # Only a passing CI run for a push to this repo's main. `branches` alone would also
     # match a pull request from a fork whose branch happens to be named main.

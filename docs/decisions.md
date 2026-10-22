@@ -278,8 +278,8 @@ original design (§2) put rules and an embedding nearest-neighbour match in "tie
 guesses. A hosted embedding call takes ~300 ms, and Haiku 5.5 with structured output
 takes ~1.3 s at p50.
 
-**The golden set** (`corpus/eval/router.toml`) has 109 messages:
-- **93 core cases** across all five intents (32 chit-chat, 31 docs questions, 25 tasks,
+**The golden set** (`corpus/eval/router.toml`) has 111 messages:
+- **95 core cases** across all five intents (32 chit-chat, 33 docs questions, 25 tasks,
   12 follow-up edits, 9 clarify). They include answers to the assistant's own questions
   and edits that only make sense with the conversation history.
 - **16 hard cases**, reported as their own slice: typos, Spanish and German, two
@@ -554,3 +554,18 @@ free, and stays on AWS (ADR 016).
 - The UI can't depend on server features (server rendering, API routes, dynamic routes).
   Links to a run use a query string (`/?run=<id>`).
 - Recording needs no new format: it is the event log the UI already consumes.
+
+**Implementation notes** (2026-10-23).
+- The stack is [infra/aws/demo.yml](../infra/aws/demo.yml). CloudFront maps S3's 403
+  and 404 to the app's 404 page, so `/api/*` on the demo answers with an error page.
+  The UI calls `/health` once on load and counts only the API's own `{"status": "ok"}`
+  as online.
+- The deploy role trusts tokens whose subject is `repo:<owner>/<repo>:ref:refs/heads/main`.
+  The demo job therefore has no GitHub `environment:`, which would change the subject.
+- Next.js' `cacheComponents` and `partialPrefetching` can't be used with a static export.
+  Nothing depended on them, so they were dropped.
+- The live server serves the same static build: the `web` image is Caddy holding the
+  files, and it also proxies `/api`. The Node container is gone (414 MB → 95 MB image).
+- No new AWS Budgets alert: the account's existing account-wide cost budgets cover the
+  demo, and a third budget would be the first one billed.
+- Recorded real runs (Phase 5) aren't in yet: the first demo shows the scripted sample.

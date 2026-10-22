@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, streamChat, subscribeRun } from "@/lib/api";
+import { ApiError, checkApi, streamChat, subscribeRun } from "@/lib/api";
 import type { ChatMessage, RunEvent } from "@/lib/types";
 
 export interface LiveChat {
+  /** null while the first health check is in flight. */
+  online: boolean | null;
   messages: ChatMessage[];
   sending: boolean;
   runEvents: RunEvent[];
@@ -16,6 +18,7 @@ export interface LiveChat {
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Math.random()));
 
 export function useLiveChat(): LiveChat {
+  const [online, setOnline] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
@@ -31,6 +34,15 @@ export function useLiveChat(): LiveChat {
     },
     [],
   );
+
+  // Live mode exists only while a backend does (ADR 017): check once on load.
+  useEffect(() => {
+    const probe = new AbortController();
+    void checkApi(probe.signal).then((up) => {
+      if (!probe.signal.aborted) setOnline(up);
+    });
+    return () => probe.abort();
+  }, []);
 
   const watchRun = useCallback((id: string) => {
     unsubscribe.current?.();
@@ -93,6 +105,7 @@ export function useLiveChat(): LiveChat {
         if (!abort.current?.signal.aborted) {
           const message = err instanceof ApiError ? err.message : "Something went wrong.";
           patch(replyId, (m) => ({ ...m, error: message }));
+          if (err instanceof ApiError && err.status === 0) setOnline(false);
         }
       } finally {
         patch(replyId, (m) => ({ ...m, streaming: false }));
@@ -112,5 +125,5 @@ export function useLiveChat(): LiveChat {
     setSending(false);
   }, []);
 
-  return { messages, sending, runEvents, runId, send, reset };
+  return { online, messages, sending, runEvents, runId, send, reset };
 }

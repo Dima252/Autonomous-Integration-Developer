@@ -114,7 +114,10 @@ export function MissionControl() {
       },
     })),
     { id: "theme", group: "View", label: `Switch to ${theme === "dark" ? "light" : "dark"} theme`, run: toggleTheme },
-    ...EXAMPLES.map((e, i) => ({ id: `ex-${i}`, group: "Ask (live)", label: e, run: () => send(e) })),
+    // Without a backend there's nothing to ask: the Live tab explains that instead.
+    ...(live.online === false
+      ? []
+      : EXAMPLES.map((e, i) => ({ id: `ex-${i}`, group: "Ask (live)", label: e, run: () => send(e) }))),
   ];
 
   return (
@@ -197,6 +200,7 @@ export function MissionControl() {
         >
           <ChatPanel
             mode={mode}
+            online={live.online}
             messages={messages}
             sending={live.sending}
             onSend={send}
@@ -212,6 +216,7 @@ export function MissionControl() {
             onTab={setTab}
             theme={theme}
             mode={mode}
+            offline={live.online === false}
             sample={SAMPLE_RUN}
             replay={replay}
             onPlaySample={playSample}
