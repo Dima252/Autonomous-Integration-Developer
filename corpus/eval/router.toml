@@ -220,6 +220,16 @@ intent = "docs_question"
 systems = ["stripe"]
 
 [[case]]
+message = "write me a python function that tells whether a github webhook request is genuine"
+intent = "docs_question"
+systems = ["github"]
+
+[[case]]
+message = "give me a function that pages through every slack channel"
+intent = "docs_question"
+systems = ["slack"]
+
+[[case]]
 message = "what's X-Hub-Signature-256?"
 intent = "docs_question"
 systems = ["github"]

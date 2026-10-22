@@ -82,7 +82,7 @@ Components:
 - A heavy intent below 0.5 confidence becomes `clarify`. A `followup_edit` with no run to
   edit becomes a new `integration_task`.
 
-On the 109-case golden set (`python -m aidev.router eval`), Haiku 5.5 routes every
+On the 111-case golden set (`python -m aidev.router eval`), Haiku 5.5 routes every
 message correctly, including typos, Spanish and German, and prompt-injection attempts.
 Tier 0 cuts the routing time for small talk from ~1.3 s to ~0.3 s. The numbers are in
 ADR 012.

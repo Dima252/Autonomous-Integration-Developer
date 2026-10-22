@@ -54,7 +54,7 @@ export function LedgerView({ run }: { run: RunView }) {
                 {a.overridable && (
                   <button
                     disabled
-                    title="Overrides re-run only the affected stages. They arrive with the agent graph (Phase 3)."
+                    title="Overrides re-run only the affected stages. They arrive in Phase 5."
                     className="shrink-0 rounded-md border border-border px-2 py-1 text-[11px] text-muted disabled:opacity-60"
                   >
                     Override

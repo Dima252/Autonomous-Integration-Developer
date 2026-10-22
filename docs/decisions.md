@@ -278,8 +278,8 @@ original design (§2) put rules and an embedding nearest-neighbour match in "tie
 guesses. A hosted embedding call takes ~300 ms, and Haiku 5.5 with structured output
 takes ~1.3 s at p50.
 
-**The golden set** (`corpus/eval/router.toml`) has 109 messages:
-- **93 core cases** across all five intents (32 chit-chat, 31 docs questions, 25 tasks,
+**The golden set** (`corpus/eval/router.toml`) has 111 messages:
+- **95 core cases** across all five intents (32 chit-chat, 33 docs questions, 25 tasks,
   12 follow-up edits, 9 clarify). They include answers to the assistant's own questions
   and edits that only make sense with the conversation history.
 - **16 hard cases**, reported as their own slice: typos, Spanish and German, two

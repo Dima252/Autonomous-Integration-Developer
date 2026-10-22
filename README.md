@@ -37,7 +37,7 @@ Full design docs:
 - [Decision log](docs/decisions.md): the major design decisions and their trade-offs
 
 - **Cost-aware routing.** Rules and embedding matching answer small talk without waiting
-  for an LLM (~0.3 s instead of ~1.3 s). A small model classifies the rest: 109 of 109
+  for an LLM (~0.3 s instead of ~1.3 s). A small model classifies the rest: 111 of 111
   correct on the golden set, typos and prompt-injection attempts included. Only real
   integration tasks start the agent graph. Every paid call is metered against hard
   monthly caps.

@@ -264,12 +264,12 @@ class ChatService:
                 data={"request": text, "systems": systems},
             ),
         )
-        # Phase 2 has no worker: the agent graph that executes runs is Phase 3.
+        # Phase 2 has no worker: the agent graph that executes runs is Phase 4.
         await self.bus.publish(
             run_id,
             RunEvent(
                 EventType.RUN_FAILED,
-                "The agent graph isn't built yet (Phase 3)",
+                "The agent graph isn't built yet (Phase 4)",
                 data={"reason": "not_implemented"},
             ),
         )

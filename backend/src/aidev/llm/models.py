@@ -12,7 +12,7 @@ OPUS = "claude-opus-5-5"
 Profile = Literal["dev", "final"]
 
 # Phase 2 roles are cheap and latency-bound, so they stay on Haiku in both profiles.
-# The reasoning roles and the coder (Phase 3) are where the profiles differ.
+# The reasoning roles and the coder (Phase 4) are where the profiles differ.
 _MODELS: dict[Profile, dict[Role, str]] = {
     "dev": {Role.ROUTER: HAIKU, Role.CHAT: HAIKU, Role.DOCS_QA: HAIKU},
     "final": {Role.ROUTER: HAIKU, Role.CHAT: HAIKU, Role.DOCS_QA: HAIKU},
