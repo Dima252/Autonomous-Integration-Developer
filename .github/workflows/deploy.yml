@@ -1,0 +1,127 @@
+name: Deploy
+
+# After CI passes on main: build both images, push them to GHCR, and roll the VM out
+# to them over SSH (ADR 016). Until the DEPLOY_* secrets exist, it stops after pushing.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  images:
+    # Only a passing CI run for a push to this repo's main. `branches` alone would also
+    # match a pull request from a fork whose branch happens to be named main.
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: api
+            context: .
+            file: backend/Dockerfile
+          - name: web
+            context: frontend
+            file: frontend/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/aidev-${{ matrix.name }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ env.SHA }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: production
+      url: ${{ vars.SITE_URL }}
+    env:
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      SSH_USER: ${{ secrets.DEPLOY_USER || 'ubuntu' }}
+
+    steps:
+      - name: Check for a deploy target
+        id: target
+        run: |
+          if [ -n "$HOST" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::DEPLOY_HOST isn't set; images are pushed, nothing is deployed."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.target.outputs.ready
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: SSH key and pinned host key
+        if: steps.target.outputs.ready
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Copy the stack definition
+        if: steps.target.outputs.ready
+        working-directory: infra/deploy
+        run: scp compose.yml Caddyfile deploy.sh bootstrap-data.sh "$SSH_USER@$HOST:/opt/aidev/"
+
+      - name: Roll out
+        if: steps.target.outputs.ready
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The registry login uses this job's token (sent over stdin), which expires when
+        # the job ends; the VM logs out again either way.
+        run: |
+          printf '%s' "$TOKEN" | ssh "$SSH_USER@$HOST" "set -e
+            docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+            trap 'docker logout ghcr.io' EXIT
+            /opt/aidev/deploy.sh '$SHA'"
+
+      - name: Smoke test
+        if: steps.target.outputs.ready && vars.SITE_URL
+        run: |
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors "${{ vars.SITE_URL }}/api/ready"
+          curl -fsS -o /dev/null "${{ vars.SITE_URL }}/"

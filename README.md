@@ -157,10 +157,11 @@ Internet ─► Caddy (automatic HTTPS) ─┬─► Next.js UI
                                                            └─► Docker sandbox + Prism mocks
 ```
 
-- **Host:** Oracle Cloud Always Free ARM VM ($0), with a ~€4/month Hetzner VM as the
-  fallback.
-- **Continuous deployment:** on merge to `main`, GitHub Actions builds the images,
-  pushes them to GitHub Container Registry, and redeploys the VM over SSH.
+- **Host:** an AWS Lightsail instance with 2 GB of RAM (~$12/month), with Caddy
+  providing automatic HTTPS (ADR 016).
+- **Continuous deployment:** once CI passes on `main`, GitHub Actions builds the images,
+  pushes them to GitHub Container Registry, and redeploys the VM over SSH. The setup
+  steps and day-to-day commands are in [infra/deploy/](infra/deploy/README.md).
 - **Demo safety:**
   - **Replay mode by default:** visitors watch real recorded runs stream step by step.
     No API cost, and nothing can break.
@@ -189,5 +190,6 @@ corpus/playbook/      Engineering playbook (indexed alongside provider docs)
 corpus/router/        Labeled example messages for the router's tier 0
 corpus/eval/          Golden sets for evaluation
 infra/postgres/       DB init scripts (pgvector)
-.github/workflows/    CI
+infra/deploy/         Production compose stack, Caddyfile, VM scripts, runbook
+.github/workflows/    CI, and the deploy to the VM
 ```
