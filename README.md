@@ -125,6 +125,7 @@ uv run pytest -m integration         # needs docker compose up
 
 cd ../frontend
 npm run lint && npm run typecheck && npm test && npm run build
+npm run e2e                          # Playwright on the static build, no backend
 ```
 
 ## Roadmap
@@ -174,7 +175,8 @@ Live mode ──► Lightsail (on demand) ──► Caddy ─┬─► UI
   (~$12/month, billed by the hour). It's created for an interview or a live test and
   deleted afterwards. A VM is needed because platform hosts can't run the Docker sandbox
   that executes generated code. Setup and teardown are in
-  [infra/deploy/](infra/deploy/README.md).
+  [infra/deploy/](infra/deploy/README.md), and the public demo's in
+  [infra/aws/](infra/aws/README.md).
 - **Real use:** the full stack runs locally with `docker compose`.
 - **Continuous deployment:** once CI passes on `main`, GitHub Actions publishes the
   static UI to S3 through an IAM role it assumes with OIDC, so no AWS keys are stored in
@@ -204,6 +206,7 @@ corpus/playbook/      Engineering playbook (indexed alongside provider docs)
 corpus/router/        Labeled example messages for the router's tier 0
 corpus/eval/          Golden sets for evaluation
 infra/postgres/       DB init scripts (pgvector)
-infra/deploy/         Production compose stack, Caddyfile, VM scripts, runbook
-.github/workflows/    CI, and the deploy to the VM
+infra/aws/            Public demo stack: S3 + CloudFront + GitHub OIDC deploy role, runbook
+infra/deploy/         Live-mode compose stack, Caddyfile, VM scripts, runbook
+.github/workflows/    CI with end-to-end tests; deploys of the static demo and the VM
 ```

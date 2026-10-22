@@ -1,5 +1,6 @@
-# One origin: the UI at /, the API under /api (prefix stripped, since the API's routes
-# sit at its root). Caddy gets and renews the TLS certificate for SITE_ADDRESS itself.
+# One origin: the UI's static files at /, the API under /api (prefix stripped, since the
+# API's routes sit at its root). Caddy gets and renews the TLS certificate for
+# SITE_ADDRESS itself. It runs in the web image, which holds the UI in /srv.
 {$SITE_ADDRESS} {
 	# The API isn't compressed: encoding would hold back SSE events until a buffer fills.
 	handle_path /api/* {
@@ -7,8 +8,20 @@
 	}
 
 	handle {
+		root * /srv
 		encode zstd gzip
-		reverse_proxy web:3000
+		try_files {path} {path}.html {path}/index.html
+		file_server
+	}
+
+	# Next.js fingerprints these file names, so they can be cached forever.
+	@hashed path /_next/static/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	handle_errors 404 {
+		root * /srv
+		rewrite * /404.html
+		file_server
 	}
 
 	header {

@@ -4,15 +4,16 @@ This is the server for **live mode**, and it's created on demand: for an intervi
 live test, then deleted (ADR 016, 017). The public demo is static on S3 + CloudFront and
 doesn't need it.
 
-The stack is one Lightsail instance running `docker compose`: Caddy in front, the UI at
-`/`, the API under `/api`, with Postgres and Redis on the compose network. While the
+The stack is one Lightsail instance running `docker compose`: the `web` container is
+Caddy holding the UI's static files, serving them at `/` and proxying `/api` to the API,
+with Postgres and Redis on the compose network. While the
 instance exists, merging to `main` redeploys it once CI passes
 ([deploy.yml](../../.github/workflows/deploy.yml)).
 
 | File | Where it runs | What it does |
 |---|---|---|
 | [compose.yml](compose.yml) | VM | The production stack; images come from GHCR |
-| [Caddyfile](Caddyfile) | VM | HTTPS, routing, security headers |
+| [Caddyfile](Caddyfile) | VM | HTTPS, the UI's files, the `/api` proxy, security headers |
 | [env.example](env.example) | VM | Template for `/opt/aidev/.env`, the only place secrets live |
 | [deploy.sh](deploy.sh) | VM | Pull, migrate, restart, wait for health checks |
 | [bootstrap-data.sh](bootstrap-data.sh) | VM | One-time catalog ingest, docs index and embeddings |

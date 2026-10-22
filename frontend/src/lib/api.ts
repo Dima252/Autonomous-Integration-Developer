@@ -22,6 +22,20 @@ export class ApiError extends Error {
   }
 }
 
+/** Whether a backend answers. The public demo is static files with no API behind them,
+ * where /api returns an error page (CloudFront's 403) or nothing at all, so only the
+ * API's own health reply counts. */
+export async function checkApi(signal?: AbortSignal): Promise<boolean> {
+  try {
+    const resp = await fetch(`${API_BASE}/health`, { signal, cache: "no-store" });
+    if (!resp.ok) return false;
+    const body = await resp.json();
+    return body?.status === "ok";
+  } catch {
+    return false;
+  }
+}
+
 /** POST /chat and call `onEvent` for each streamed event until the reply is done. */
 export async function streamChat(
   message: string,

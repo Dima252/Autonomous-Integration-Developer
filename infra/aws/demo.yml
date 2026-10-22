@@ -1,0 +1,199 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Public demo of the Autonomous Integration Developer - the UI as static files in a
+  private S3 bucket behind CloudFront (origin access control), deployed by GitHub
+  Actions through OIDC, so no long-lived AWS keys exist anywhere (ADR 017).
+
+# Design context lives in inline comments and in ADR 017 (docs/decisions.md), the
+# repo's convention. Deploy and teardown steps: infra/aws/README.md.
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    ref:
+      - at: docs/decisions.md
+        has: ADR 017, static demo on S3 + CloudFront, live mode on demand
+      - at: infra/aws/README.md
+        has: deploy, GitHub settings, teardown
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Default: Dima252/Autonomous-Integration-Developer
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    Description: owner/name of the repository whose workflows may deploy.
+  DeployBranch:
+    Type: String
+    Default: main
+    AllowedPattern: "^[A-Za-z0-9_./-]+$"
+    Description: Only workflow runs on this branch can assume the deploy role.
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      An account holds one provider per URL. Set false if
+      token.actions.githubusercontent.com already exists in this account.
+
+Conditions:
+  CreateProvider: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  # Holds only the build output (out/), which CI rebuilds from the repo on every
+  # deploy, so there's no versioning. Retained on stack deletion because CloudFormation
+  # can't delete a non-empty bucket: empty it, then delete it by hand.
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  # Only this distribution may read objects (aws:SourceArn guards against another
+  # distribution using the same OAC), and only over TLS.
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFrontReadsThroughOac
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt SiteBucket.Arn
+              - !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-site"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # The default *.cloudfront.net certificate, so no domain is needed. PriceClass_100
+  # (North America and Europe edges) is the cheapest class. No access logs: a demo of
+  # static files doesn't need a log bucket.
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "${AWS::StackName}: Autonomous Integration Developer demo"
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        DefaultRootObject: index.html
+        Origins:
+          - Id: site
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # Managed-SecurityHeadersPolicy
+        # Without s3:ListBucket, S3 answers a missing key with 403. Both become the
+        # app's 404 page. /api/* lands here too, which the UI reads as "live mode
+        # offline": the demo has no backend.
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 404
+            ResponsePagePath: /404.html
+            ErrorCachingMinTTL: 60
+          - ErrorCode: 404
+            ResponseCode: 404
+            ResponsePagePath: /404.html
+            ErrorCachingMinTTL: 60
+
+  # GitHub's OIDC issuer. AWS verifies it through trusted CAs, so no thumbprint.
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  # Assumable only by workflow runs on one branch of one repository. It can replace
+  # the site's files and invalidate this distribution's cache, nothing else.
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: GitHub Actions deploys the static demo (S3 sync + CloudFront invalidation)
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateProvider
+                - !Ref GitHubOidcProvider
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubRepository}:ref:refs/heads/${DeployBranch}"
+      Policies:
+        - PolicyName: deploy-static-site
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ListForSync
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt SiteBucket.Arn
+              - Sid: ReplaceSiteFiles
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub "${SiteBucket.Arn}/*"
+              - Sid: InvalidateCache
+                Effect: Allow
+                Action: [cloudfront:CreateInvalidation, cloudfront:GetInvalidation]
+                Resource: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+
+Outputs:
+  SiteUrl:
+    Description: The public demo
+    Value: !Sub "https://${Distribution.DomainName}"
+  BucketName:
+    Description: GitHub variable DEMO_BUCKET
+    Value: !Ref SiteBucket
+  DistributionId:
+    Description: GitHub variable DEMO_DISTRIBUTION_ID
+    Value: !Ref Distribution
+  DeployRoleArn:
+    Description: GitHub variable DEMO_ROLE_ARN
+    Value: !GetAtt DeployRole.Arn

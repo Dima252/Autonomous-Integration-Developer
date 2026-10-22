@@ -1,10 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // A self-contained server for the Docker image (frontend/Dockerfile).
-  output: "standalone",
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Plain static files in out/: S3 + CloudFront serve the public demo, Caddy the live
+  // server (ADR 017). There's no Node server anywhere.
+  output: "export",
   turbopack: {
     rules: {
       "*.css": {
