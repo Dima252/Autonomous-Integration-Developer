@@ -1,8 +1,12 @@
-# Deploying to AWS Lightsail
+# Live-mode server on AWS Lightsail
 
-The production stack is one Lightsail instance running `docker compose` (ADR 016):
-Caddy in front, the UI at `/`, the API under `/api`, with Postgres and Redis on the
-compose network. Merging to `main` redeploys it once CI passes
+This is the server for **live mode**, and it's created on demand: for an interview or a
+live test, then deleted (ADR 016, 017). The public demo is static on S3 + CloudFront and
+doesn't need it.
+
+The stack is one Lightsail instance running `docker compose`: Caddy in front, the UI at
+`/`, the API under `/api`, with Postgres and Redis on the compose network. While the
+instance exists, merging to `main` redeploys it once CI passes
 ([deploy.yml](../../.github/workflows/deploy.yml)).
 
 | File | Where it runs | What it does |
@@ -71,6 +75,18 @@ free Voyage pacing).
   the VM. Every build is tagged with its commit.
 - **Logs:** `cd /opt/aidev && docker compose logs -f api`
 - **Spend:** `docker compose run --rm api python -m aidev.llm usage`
-- **Backups:** turn on Lightsail automatic snapshots (billed per GB) if the data
-  becomes worth keeping.
-  Today everything can be rebuilt from the repo with `bootstrap-data.sh`.
+- **Backups:** everything can be rebuilt from the repo with `bootstrap-data.sh`. A
+  snapshot just saves the ~2.5 h of embedding.
+
+## Between uses
+
+Lightsail bills an instance by the hour whether it's running or stopped, so delete it
+when you're done:
+
+1. Take a **snapshot** of the instance (billed per GB, cents per month).
+2. **Delete the instance** and **release the static IP**. An unattached static IP is billed.
+3. Delete the `DEPLOY_HOST` secret, so merges skip the rollout instead of failing on SSH.
+
+To bring it back, create an instance from the snapshot and attach a new static IP. Then
+set `DEPLOY_HOST`, refresh `DEPLOY_KNOWN_HOSTS` with `ssh-keyscan <new-ip>`, and update
+`SITE_ADDRESS` in `/opt/aidev/.env`. If `SITE_ADDRESS` uses sslip.io, it contains the IP.

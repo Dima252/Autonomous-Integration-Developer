@@ -7,8 +7,9 @@ tests it in a sandbox against mock APIs, and fixes its own mistakes until the ch
 pass. You watch every step stream live.
 
 > **Status:** Phase 2 in progress. Done: the LLM layer with spend caps, the two-tier
-> router, the streaming chat API (small talk, cited docs answers, run events) and the
-> mission-control UI. Next: the first deploy. See the [roadmap](#roadmap).
+> router, the streaming chat API (small talk, cited docs answers, run events), the
+> mission-control UI and the on-demand live-mode server. Next: the static public demo on
+> AWS. See the [roadmap](#roadmap).
 
 ![Mission control: chat on the left; on the right the agent graph mid-run, with the
 validator failed and the diagnostician working on the fix](docs/images/mission-control.png)
@@ -130,45 +131,58 @@ npm run lint && npm run typecheck && npm test && npm run build
 
 - [x] **Phase 0: Foundation.** Repo layout, Docker services, health/readiness, CI
 - [x] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, search, retrieval eval
-- [ ] **Phase 2: Chat + first deploy.** Router, chat path, SSE event bus, the UI.
-  Deployed to a VM with HTTPS and continuous deployment from day one.
+- [ ] **Phase 2: Chat + deploy.** Router, chat path, SSE event bus, the UI, and a public
+  demo with continuous deployment from day one.
   - [x] LLM layer with hard monthly spend caps; two-tier router and its eval (ADR 012, 013)
   - [x] Chat API: template and model replies, cited docs answers, run events over
     resumable SSE, rate limits (ADR 014)
   - [x] Mission-control UI: chat, live agent graph, timeline, code diffs per iteration,
     checks, sources, spec and decisions; a scripted sample run (ADR 015)
-  - [ ] VM deploy with HTTPS and continuous deployment
-- [ ] **Phase 3: Agent graph.** analyst → architect → researchers → contract → tests → coder
-- [ ] **Phase 4: Self-healing.** Sandbox, validation pipeline, diagnose/fix loop
-- [ ] **Phase 5: UI.** Assumption overrides, replay of recorded real runs, run history
-  (the run workspace itself shipped in Phase 2)
-- [ ] **Phase 6: Quality.** Memory, tracing, eval harness with ablations, public demo hardening
+  - [x] Live-mode server: Docker images, a Lightsail stack with HTTPS, CD over SSH
+    (ADR 016)
+  - [ ] Static public demo: the UI as static files on S3 + CloudFront, chat that says
+    when live mode is offline, Playwright tests in CI (ADR 017)
+- [ ] **Phase 3: Sandbox + validation.** Docker sandbox, Prism mocks, and the deterministic
+  checks (install, lint, types, grounding, tests, security), proven on hand-written good
+  and bad code before any agent depends on them
+- [ ] **Phase 4: Agent graph + fix loop.** A thin slice first (analyst → researcher → coder →
+  validator → diagnostician on one Stripe → Slack task), then the architect, contract
+  compiler, test author, reviewer and packager
+- [ ] **Phase 5: Recorded real runs.** Export finished runs to the public demo in place of
+  the scripted sample; assumption overrides, run history
+- [ ] **Phase 6: Quality.** Memory, tracing, eval harness with ablations
 
 ## Deployment
 
-The whole stack runs on one small VM with `docker compose`, the same way it runs locally.
-Platform hosts (Vercel, Render, Railway) can't run the Docker sandbox that executes
-generated code, so a VM is the simplest host that runs everything.
+The demo is for people evaluating the project, who have a minute, not ten. So the public
+demo and live mode are deployed separately, both on AWS (ADR 016, 017):
 
 ```
-Internet ─► Caddy (automatic HTTPS) ─┬─► Next.js UI
-                                     └─► FastAPI + worker ─┬─► Postgres + pgvector
-                                                           ├─► Redis
-                                                           └─► Docker sandbox + Prism mocks
+Visitors ──► CloudFront ──► S3: static UI + recorded real runs        always on, ~$0/month
+
+Live mode ──► Lightsail (on demand) ──► Caddy ─┬─► UI
+                                              └─► FastAPI + worker ─┬─► Postgres + pgvector
+                                                                    ├─► Redis
+                                                                    └─► Docker sandbox + Prism mocks
 ```
 
-- **Host:** an AWS Lightsail instance with 2 GB of RAM (~$12/month), with Caddy
-  providing automatic HTTPS (ADR 016).
-- **Continuous deployment:** once CI passes on `main`, GitHub Actions builds the images,
-  pushes them to GitHub Container Registry, and redeploys the VM over SSH. The setup
-  steps and day-to-day commands are in [infra/deploy/](infra/deploy/README.md).
-- **Demo safety:**
-  - **Replay mode by default:** visitors watch real recorded runs stream step by step.
-    No API cost, and nothing can break.
-  - **Live mode behind a passcode,** shared with reviewers.
-  - **Spend limits:** a monthly cap in the Anthropic console, a per-run token and dollar
-    budget, and per-IP rate limits.
-- **Showcase:** a 1–2 minute demo video at the top of this README, the live link, and
+- **Public demo:** the UI as static files on S3 behind CloudFront. It replays **recorded
+  real runs**: tasks run locally, with their event logs exported and played back through
+  the same view live mode uses. The scripted sample run stays, and is labeled as such.
+  No backend and no API keys, so it costs nothing and nothing can break.
+- **Live mode, on demand:** the full stack on one Lightsail instance with 2 GB of RAM
+  (~$12/month, billed by the hour). It's created for an interview or a live test and
+  deleted afterwards. A VM is needed because platform hosts can't run the Docker sandbox
+  that executes generated code. Setup and teardown are in
+  [infra/deploy/](infra/deploy/README.md).
+- **Real use:** the full stack runs locally with `docker compose`.
+- **Continuous deployment:** once CI passes on `main`, GitHub Actions publishes the
+  static UI to S3 through an IAM role it assumes with OIDC, so no AWS keys are stored in
+  GitHub. While the live server exists, Actions also pushes the images to GitHub
+  Container Registry and redeploys the server over SSH.
+- **Spend limits:** a monthly cap in the Anthropic console, hard per-month caps in the
+  app (ADR 013), per-IP rate limits, and an AWS Budgets alert.
+- **Showcase:** a 1–2 minute demo video at the top of this README, the demo link, and
   the eval results.
 
 ## Repository layout
