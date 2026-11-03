@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// End-to-end tests against the static export with no backend: the public demo as
-// CloudFront serves it. Build first (`npm run build`), then `npm run e2e`.
+// End-to-end tests against the static export with no backend running.
+// Build first (`npm run build`), then `npm run e2e`.
 const PORT = 4173;
 
 export default defineConfig({

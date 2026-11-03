@@ -15,7 +15,7 @@ describe("checkApi", () => {
     expect(await checkApi()).toBe(true);
   });
 
-  it("is offline behind CloudFront with no API (403 error page)", async () => {
+  it("is offline when a static host answers /api with an error page", async () => {
     respond("<?xml version='1.0'?><Error><Code>AccessDenied</Code></Error>", 403, "application/xml");
     expect(await checkApi()).toBe(false);
   });

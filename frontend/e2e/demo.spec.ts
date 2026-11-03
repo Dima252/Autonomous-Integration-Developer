@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The public demo: static files, no backend (ADR 017).
+// The static build with no backend: the sample run plays and Live says it's offline.
 
 const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1280) < 1024;
 
