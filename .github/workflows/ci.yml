@@ -79,6 +79,13 @@ jobs:
           cache-from: type=gha,scope=sandbox
           cache-to: type=gha,mode=max,scope=sandbox
 
+      # The mocks and the grounding check read the providers' pinned specs. They're
+      # downloaded on first use; the pins live in sources.py.
+      - uses: actions/cache@v4
+        with:
+          path: data/specs
+          key: specs-${{ hashFiles('backend/src/aidev/catalog/sources.py') }}
+
       - name: Sandbox tests
         run: uv run pytest -m sandbox -v
 

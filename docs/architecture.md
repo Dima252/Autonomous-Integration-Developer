@@ -189,7 +189,7 @@ The checks run in the sandbox, cheapest and most decisive first:
 | 1 | `uv pip install` the generated requirements | Missing or invented packages |
 | 2 | `ruff` + `pyright` with the real provider SDKs installed | Syntax and type errors, **SDK methods that don't exist** |
 | 3 | Grounding check: AST-extract every HTTP call and match it to the catalog | Invented REST endpoints and params |
-| 4 | `pytest` against Prism mock servers, plus **signed** webhook payload replays | Behavioral bugs, broken signature verification |
+| 4 | `pytest` against Prism mock servers, plus **signed** webhook payload replays | Behavioral bugs, broken signature verification, calls the provider's spec doesn't allow |
 | 5 | `semgrep` / `bandit`, secret scan | Security issues, hardcoded secrets |
 | 6 | LLM Reviewer (only once 1–5 pass) | Unmet requirements, playbook violations |
 

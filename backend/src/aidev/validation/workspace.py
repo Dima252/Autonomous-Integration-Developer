@@ -49,15 +49,18 @@ class Workspace:
         return self.files.get("requirements.txt")
 
     def to_tar(self) -> bytes:
-        """A tar stream for `docker run -i … tar -x`: regular files only, owned by the
-        sandbox user, no links, so extracting it can't write outside /work."""
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w") as tar:
-            for path, content in self.files.items():
-                data = content.encode()
-                info = tarfile.TarInfo(path)
-                info.size = len(data)
-                info.mode = 0o644
-                info.uid = info.gid = 10001
-                tar.addfile(info, io.BytesIO(data))
-        return buf.getvalue()
+        return tar_files({path: content.encode() for path, content in self.files.items()})
+
+
+def tar_files(files: Mapping[str, bytes]) -> bytes:
+    """A tar stream for `docker run -i … tar -x`: regular files only, owned by the
+    sandbox user, no links, so extracting it can't write outside the target."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for path, data in files.items():
+            info = tarfile.TarInfo(_clean(path))
+            info.size = len(data)
+            info.mode = 0o644
+            info.uid = info.gid = 10001
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()

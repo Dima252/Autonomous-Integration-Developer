@@ -1,8 +1,5 @@
 {
-  "extraPaths": [
-    "/deps",
-    "/work"
-  ],
+  "extraPaths": ["/deps", "/work", "/opt/testkit"],
   "pythonVersion": "3.12",
   "typeCheckingMode": "basic",
   "reportMissingModuleSource": "none"

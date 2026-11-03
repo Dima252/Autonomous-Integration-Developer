@@ -17,18 +17,20 @@ RUN uv venv /opt/tools \
     && /opt/tools/bin/pyright --version
 
 # The checks' configuration, outside the workspace: code under validation can't
-# loosen its own rules.
-COPY ruff.toml pyrightconfig.json /etc/aidev/
+# loosen its own rules. The testkit (webhook signing, the mock_api fixture) is
+# importable by every test.
+COPY ruff.toml pyrightconfig.json pytest.ini /etc/aidev/
+COPY testkit /opt/testkit
 
 RUN useradd --uid 10001 --create-home sandbox \
-    && mkdir /deps /work /uv-cache \
-    && chown sandbox:sandbox /deps /work /uv-cache
+    && mkdir /deps /work /uv-cache /specs \
+    && chown sandbox:sandbox /deps /work /uv-cache /specs
 USER sandbox
 
 # /uv-cache is a volume shared by install steps (sandbox.py); copies, not hardlinks,
 # because it and /deps are different volumes.
 ENV PATH=/opt/tools/bin:$PATH \
-    PYTHONPATH=/deps:/work \
+    PYTHONPATH=/deps:/work:/opt/testkit \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_CACHE_DIR=/uv-cache \

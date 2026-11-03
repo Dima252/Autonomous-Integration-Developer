@@ -70,3 +70,56 @@ expect = ["ruff", "pyright"]
 edits = [
   { path = "app/main.py", old = "seen_events.add(event.id)", new = "seen_event.add(event.id)" },
 ]
+
+# --- grounding: claims about the API that only the catalog can refute ---------------
+
+[[case]]
+name = "invented-endpoint"
+description = "A Slack Web API method that doesn't exist"
+expect = ["grounding"]
+edits = [
+  { path = "app/slack.py", old = "chat.postMessage", new = "chat.sendAlert" },
+]
+
+[[case]]
+name = "unknown-event"
+description = "A misspelled Stripe event type: the handler would never fire"
+expect = ["grounding"]
+edits = [
+  { path = "app/main.py", old = '"invoice.payment_failed"', new = '"invoice.payment_faild"' },
+]
+
+# --- pytest: behavior, against mocks built from the providers' specs ----------------
+
+[[case]]
+name = "reserialized-body"
+description = "Verifies the signature over re-serialized JSON instead of the raw bytes"
+expect = ["pytest"]
+edits = [
+  { path = "app/main.py", old = "import os\n", new = "import json\nimport os\n" },
+  { path = "app/main.py", old = "payload = await request.body()", new = "payload = json.dumps(await request.json()).encode()" },
+]
+
+[[case]]
+name = "no-deduplication"
+description = "Handles every delivery, so Stripe's retries alert twice"
+expect = ["pytest"]
+edits = [
+  { path = "app/main.py", old = " and event.id not in seen_events:", new = ":" },
+]
+
+[[case]]
+name = "vip-flag-as-bool"
+description = "Compares Stripe metadata to True, but metadata values are strings"
+expect = ["pytest"]
+edits = [
+  { path = "app/main.py", old = 'metadata.get("vip") == "true"', new = 'metadata.get("vip") is True' },
+]
+
+[[case]]
+name = "slack-missing-channel"
+description = "Calls chat.postMessage without the channel its spec requires"
+expect = ["pytest"]
+edits = [
+  { path = "app/slack.py", old = "            \"channel\": CHANNEL,\n", new = "" },
+]

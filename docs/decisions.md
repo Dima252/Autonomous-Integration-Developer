@@ -668,3 +668,45 @@ validator has to be shown to work before any agent relies on its verdicts.
 - The reference solution already caught a real API change: stripe-python 15+ objects
   aren't dicts, so `.get()` fails at run time. Pyright flagged it before any test ran,
   and it became a seeded case.
+
+**Phase 3b addition: mock APIs, tests, grounding** (2026-11-04).
+- **Prism gets a trimmed spec.** On Stripe's full spec, Prism was still starting after
+  more than two minutes at 100% CPU, resolving 1,538 cross-referencing schemas. The
+  request side (parameters, bodies) holds none of the spec's references, and the
+  responses hold all 1,243 of them. So the mock spec keeps every path's request rules
+  and answers with one plain object (`{"ok": true}` for Slack, whose clients need
+  it). Stripe's mock starts in ~3 s. Slack's 2021 spec also declares the bot token as a
+  required header named `token`; real clients send `Authorization: Bearer`, so that
+  parameter is dropped. Prism runs with `--multiprocess=false`, because its default
+  cluster mode crashes on current Node.js.
+- **Tests choose responses through the testkit.** Prism can validate a request but
+  can't be told what to answer, and tests need a VIP customer, not a random one.
+  `aidev_testkit`, a pytest plugin in the image, puts a local proxy in front of each
+  mock and points the code's base-URL variable (`STRIPE_API_BASE`, `SLACK_API_URL`,
+  `GITHUB_API_URL`) at it. Every request goes to Prism first. A request the spec
+  doesn't allow is recorded, gets Prism's error back, and fails the test with the
+  reason, even if the code swallows the error. Otherwise the proxy answers with the
+  response the test set (`mock_api.stripe.respond(...)`), or Prism's. Every call is
+  recorded, so tests assert on what was sent. Slack bodies sent as JSON are re-encoded
+  as form fields for validation, because a Swagger 2.0 spec can only describe forms.
+- **Only the pytest container has a network,** and it's an `--internal` Docker network
+  whose only other members are the mocks. The test above checks that it reaches
+  `stripe-mock` and not the internet.
+- **pytest runs with the image's config** (`-c /etc/aidev/pytest.ini`), so a workspace
+  `pytest.ini` can't deselect tests. Its JUnit report goes to stderr: code that exits
+  the process early writes no report, and "no report" fails. A `conftest.py` can still
+  change collection. Tests and their conftest are the Test Author's locked files
+  (ADR 007), and the Coder can't write them.
+- **Grounding reads the syntax tree; nothing runs.** It finds raw HTTP calls whose URL
+  resolves to a provider's base URL, following module-level constants and the default
+  in `os.environ.get("X", "https://...")`. Each one has to match a catalog operation.
+  It also finds dotted event names where code names an event (a comparison, a
+  collection, a dict key, a `case`). Any name with a provider's event prefix
+  (`invoice.`) has to be a real event of that provider. SDK calls are left to pyright.
+  The specs come from the catalog's pinned sources, cached in `data/specs/`, so no
+  database is needed.
+- **Six more seeded cases,** 15 in all: an invented Slack method, a misspelled Stripe
+  event, a signature verified over re-serialized JSON, no deduplication, a metadata flag
+  compared to `True`, and a Slack call without its required `channel`. That last one is
+  caught only by the mock's contract check. 15 of 15 as expected, ~6–9 s per
+  validation.
