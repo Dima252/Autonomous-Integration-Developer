@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Plain static files in out/: S3 + CloudFront serve the public demo, Caddy the live
-  // server (ADR 017). There's no Node server anywhere.
+  // Plain static files in out/: Caddy serves them on the live server, and the e2e tests
+  // and README media run against them (ADR 017, 018). There's no Node server anywhere.
   output: "export",
   turbopack: {
     rules: {

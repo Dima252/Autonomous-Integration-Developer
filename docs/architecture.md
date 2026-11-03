@@ -235,8 +235,8 @@ client disconnects mid-answer, the partial reply is saved and marked interrupted
 
 The payload of each event type is specified in [ui-events.md](ui-events.md), which
 is what the web UI renders. Finished runs are saved to Postgres for a "replay this run"
-view, and can be exported as an event-log file that the static public demo plays back
-(ADR 017). Step labels come from templates, so they cost nothing. Only diagnosis text is
+view, and can be exported as an event-log file that the UI plays back offline
+(ADR 017, 018). Step labels come from templates, so they cost nothing. Only diagnosis text is
 model-written.
 
 ## 6. State and memory
@@ -337,6 +337,6 @@ search falls back to BM25. `python -m aidev.llm usage` shows month-to-date spend
 - **Providers:** Stripe, Slack, GitHub, HubSpot.
 - **Generated code:** Python (FastAPI services, webhook handlers, API clients).
 - **Sandbox:** local Docker.
-- **Hosting:** the public demo is static (S3 + CloudFront) and replays recorded real runs.
-  Live mode runs the full stack on one VM created on demand (ADR 016, 017, and the
-  README's Deployment section).
+- **Hosting:** nothing is always on. The README shows recorded runs, and live mode runs
+  the full stack on one VM created on demand (ADR 016, 018, and the README's Deployment
+  section).

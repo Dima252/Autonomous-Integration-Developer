@@ -1,6 +1,6 @@
-// Serves the static export (out/) the way the public demo's CloudFront does: files
-// from the bucket, 404.html for unknown paths, and a 403 XML error for /api/*, because
-// no API sits behind the demo (ADR 017).
+// Serves the static export (out/) with no API behind it: files, 404.html for unknown
+// paths, and an error page for /api/*, which the UI must read as "live mode offline".
+// The e2e tests and `npm run media` both run against it.
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";

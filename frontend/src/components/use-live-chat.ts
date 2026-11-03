@@ -35,7 +35,7 @@ export function useLiveChat(): LiveChat {
     [],
   );
 
-  // Live mode exists only while a backend does (ADR 017): check once on load.
+  // Live mode exists only while a backend does (ADR 018): check once on load.
   useEffect(() => {
     const probe = new AbortController();
     void checkApi(probe.signal).then((up) => {

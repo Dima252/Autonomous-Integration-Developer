@@ -1,80 +1,120 @@
 # Autonomous Integration Developer
 
+[![CI](https://github.com/Dima252/Autonomous-Integration-Developer/actions/workflows/ci.yml/badge.svg)](https://github.com/Dima252/Autonomous-Integration-Developer/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Postgres + pgvector](https://img.shields.io/badge/Postgres-pgvector-4169E1?logo=postgresql&logoColor=white)
+![Claude](https://img.shields.io/badge/LLM-Claude%205.5-D97757)
+
 A chat-based virtual engineer that writes **and validates** API integrations.
-Ask for something like *"Build a webhook that listens to Stripe billing events and
-alerts Slack for VIP customers"* and it researches the real API docs, writes the code,
-tests it in a sandbox against mock APIs, and fixes its own mistakes until the checks
-pass. You watch every step stream live.
+Ask for *"Build a webhook that listens to Stripe billing events and alerts Slack for VIP
+customers"*. It reads the real API docs, asks only the questions that change the design,
+writes the code, tests it against mock APIs, and fixes its own mistakes until every
+check passes. You watch each step as it happens.
 
-> **Status:** Phase 2 in progress. Done: the LLM layer with spend caps, the two-tier
-> router, the streaming chat API (small talk, cited docs answers, run events), the
-> mission-control UI, the on-demand live-mode server, and the static public demo's code,
-> infrastructure template and CD. Next: create the demo's AWS stack and publish it
-> ([where it stands](infra/aws/README.md#status)). See the [roadmap](#roadmap).
+![Mission control playing a run: the analyst asks one question, the researchers answer
+the Stripe and Slack questions, the validator fails twice and the diagnostician fixes
+the code, then the reviewer approves it](docs/images/walkthrough.gif)
 
-![Mission control: chat on the left; on the right the agent graph mid-run, with the
-validator failed and the diagnostician working on the fix](docs/images/mission-control.png)
+<sub>The UI playing its scripted sample run, ~3.5× speed. The run is written in the
+real [event format](docs/ui-events.md) the agents will emit (Phase 4); everything else
+on this page, from the router to the docs search and the evals, is built and measured.</sub>
 
-<sub>The UI playing its scripted sample run. The agents that produce real runs are Phase
-3; the UI already renders their [event contract](docs/ui-events.md).</sub>
+## Results so far
+
+| What | Measured |
+|---|---|
+| Router accuracy | **111 / 111** on the golden set, typos and prompt-injection attempts included ([ADR 012](docs/decisions.md#012-router-rules-then-nearest-neighbour-in-parallel-with-a-haiku-classifier)) |
+| Small-talk routing | **~0.3 s** p50, against ~1.3 s for an LLM classifier on every message |
+| Docs retrieval | **Hit@8 0.98, MRR 0.92** on 66 queries; hybrid search measured *worse* and was rejected ([ADR 011](docs/decisions.md#011-docs-search-vector--reranker-by-default-bm25-as-fallback-chosen-by-eval)) |
+| Cost per reply | **$0** for small talk (~30 ms), **~$0.001** for a cited docs answer, **$0.11** per 1,000 routed messages |
+| Spend safety | Hard monthly caps, checked before every paid call, abandoned streams included ([ADR 013](docs/decisions.md#013-spend-metering-with-hard-monthly-caps-on-anthropic-and-voyage)) |
+| Tests | Backend 120 unit + 17 integration, frontend 15 unit + Playwright end-to-end, all in CI |
+
+## Inside a run
+
+| | |
+|---|---|
+| ![Code tab: the generated handler with the diff from iteration 2 to 3](docs/images/code.png) | ![Checks tab: install, lint, types, grounding, tests and security for each iteration](docs/images/checks.png) |
+| **Code.** Every file at every iteration, with diffs. The acceptance tests are locked, so the coder can't weaken them to pass. | **Checks.** Deterministic checks first, an LLM reviewer last. Iteration 1 failed type checking, iteration 2 failed 4 tests. |
+| ![Sources tab: each research question with the docs pages that answered it](docs/images/sources.png) | ![Spec and decisions tab: the question asked, the assumptions made, the design decisions](docs/images/spec.png) |
+| **Sources.** Each research question and the provider docs or playbook pages that answered it. | **Spec and decisions.** One question asked, the rest assumed and open to override, decisions logged with their alternatives. |
 
 ## How it works
 
-```
-Chat UI ──► Router ──► chit-chat ─────────► fast, cheap reply (no agents)
-               ├────► docs question ─────► one search + a cited answer (no agents)
-               └────► integration task ──► LangGraph run (streamed to the UI)
-                        analyst (clarify / assume) → architect (decisions + info needs)
-                        → researchers (RAG, per provider, parallel)
-                        → API contract (every operation checked against the catalog)
-                        → locked acceptance tests → coder → validator
-                        ⟲ diagnostician (fix | re-research | replan | ask user)
-                        → reviewer → packager → memory curator (learns)
+```mermaid
+flowchart LR
+  M["Chat message"] --> R{"Router"}
+  R -->|small talk| S["Template or small-model reply"]
+  R -->|docs question| D["One search, cited answer"]
+  R -->|integration task| G["Agent run, streamed to the UI"]
 ```
 
-Full design docs:
-- [System architecture](docs/architecture.md): routing, RAG, validation, streaming, models, cost
-- [Agent architecture](docs/agent-architecture.md): agents, blackboard state, the mechanisms that make it intelligent
-- [Decision log](docs/decisions.md): the major design decisions and their trade-offs
+Most messages never reach the agents. A free rules tier and an embedding lookup answer
+small talk, a small model classifies the rest, and only real integration tasks start a
+run:
 
-- **Cost-aware routing.** Rules and embedding matching answer small talk without waiting
-  for an LLM (~0.3 s instead of ~1.3 s). A small model classifies the rest: 111 of 111
-  correct on the golden set, typos and prompt-injection attempts included. Only real
-  integration tasks start the agent graph. Every paid call is metered against hard
-  monthly caps.
+```mermaid
+flowchart TD
+  A["Analyst: clarify or assume"] --> B["Architect: decisions and info needs"]
+  B --> R1["Researcher: Stripe"] & R2["Researcher: Slack"]
+  R1 & R2 --> C["API contract: every call checked against the catalog"]
+  C --> T["Test author: locked acceptance tests"]
+  T --> CO["Coder"] --> V["Validator: install, lint, types, grounding, tests"]
+  V -->|fail| DI["Diagnostician"]
+  DI -->|fix| CO
+  DI -->|re-research| R1
+  DI -->|replan| B
+  V -->|pass| RV["Reviewer"] --> P["Packager"] --> MC["Memory curator"]
+```
+
+**Built and measured**
+- **Cost-aware routing.** Rules, then a nearest-neighbour lookup in parallel with a Haiku
+  classifier, so small talk is fast and everything else waits no longer than the
+  classifier alone. Every paid call is metered against hard monthly caps.
 - **Grounded RAG.** Provider OpenAPI specs are parsed into an exact *API catalog*
-  (endpoints, webhook events, schemas). Vector search plus a reranker covers the docs
-  (Hit@8 0.98 on a 66-query golden set), with BM25 in SQL as the fallback. Generated
-  code may only use operations that exist in the catalog.
-- **Self-healing loop.** Deterministic checks run first: dependency install, ruff, pyright
-  against the real SDKs, an endpoint grounding check, and pytest against Prism mock servers
-  with signed webhook replays. An LLM reviewer runs last. A diagnostician finds the root
-  cause of each failure and routes it to a code fix, more research, a replan, or a
-  question for the user. Acceptance tests are written before the code and locked, so they
-  can't be weakened to make a run pass. The loop keeps the best version so far and stops
-  on budget or when it stops making progress.
-- **Intelligent agent design.** It asks only the clarifying questions that change the
-  design and records every other assumption. Research works through an explicit list of
-  questions until each one is answered or shown to be unanswerable. Design decisions are
-  logged with their rationale. A curated engineering playbook covers idempotency,
-  signatures, retries and timeouts. Lessons from past runs carry over, so it improves over
-  time.
-- **Transparent execution.** Typed run events go through Redis Streams to a resumable SSE
-  stream. The UI draws the agent graph live, with the code at every iteration, the checks,
-  the sources, and the decisions and assumptions behind them.
+  (endpoints, webhook events, schemas), and the docs are searched by vector + reranker,
+  with BM25 in SQL as the fallback when the embedding service is down. The configuration
+  was chosen by eval, not by assumption.
+- **Streaming chat API.** Typed Server-Sent Events: the route, citations, the answer and
+  its cost. Run events go through Redis Streams to a resumable stream.
+- **Mission-control UI.** The live agent graph, a timeline, code with per-iteration
+  diffs, checks, sources, and the spec and decisions. One reducer folds events for live
+  mode and replays alike.
+
+**Designed, being built** ([roadmap](#roadmap))
+- **Self-healing loop.** Deterministic checks (dependency install, ruff, pyright against
+  the real SDKs, an endpoint grounding check, pytest against Prism mock servers with
+  signed webhook replays) run in a Docker sandbox with no network. A diagnostician finds
+  the root cause of each failure and routes it to a fix, more research, a replan, or a
+  question for the user. The loop keeps the best version so far and stops on budget or
+  when it stops making progress.
+- **Agents that learn.** At most one round of clarifying questions, everything else
+  assumed and recorded. A curated engineering playbook covers idempotency, signatures,
+  retries and timeouts, and lessons from past runs carry over.
+
+Design docs:
+- [System architecture](docs/architecture.md): routing, RAG, validation, streaming, models, cost
+- [Agent architecture](docs/agent-architecture.md): agents, blackboard state, the mechanisms behind them
+- [Decision log](docs/decisions.md): 18 decisions with their context and trade-offs, for example:
+  a fixed workflow with LLM decision points instead of a free-form supervisor (001),
+  catalog grounding instead of vector search alone (006), and acceptance tests written
+  before the code and locked (007)
 
 ## Stack
 
 | Layer | Choice |
 |---|---|
-| Backend | Python 3.12, FastAPI, Pydantic, uv |
-| Orchestration | LangGraph (Postgres checkpointer) |
-| LLMs | Claude Haiku 5.5 / Sonnet 5.5 / Opus 5.5 behind a provider-agnostic layer |
-| Retrieval | Postgres + pgvector, full-text search, Voyage AI embeddings + reranker |
-| Events / queue | Redis 7 (Streams, Arq) |
-| Sandbox | Docker (no network) + Prism mock servers from OpenAPI specs |
-| Frontend | Next.js, TypeScript, Tailwind, React Flow, Monaco, Motion |
-| Observability | Langfuse, OpenTelemetry |
+| Backend | Python 3.12, FastAPI, Pydantic, SQLAlchemy, Alembic, uv |
+| LLMs | Claude Haiku / Sonnet / Opus 5.5 behind a provider-agnostic layer |
+| Retrieval | Postgres + pgvector, BM25 in SQL, Voyage AI embeddings + reranker |
+| Events / queue | Redis 7 (Streams; Arq from Phase 4) |
+| Frontend | Next.js (static export), TypeScript, Tailwind, React Flow, Monaco, Motion |
+| Testing | pytest, ruff, pyright, Vitest, Playwright, golden-set evals |
+| CI / CD | GitHub Actions, images on GHCR, Lightsail VM over SSH |
+| Planned | LangGraph (Phase 4), Docker sandbox + Prism mocks (Phase 3), Langfuse + OpenTelemetry (Phase 6) |
 
 ## Quickstart
 
@@ -97,7 +137,7 @@ uv run uvicorn aidev.api.main:app --reload
 # http://localhost:8000/health   http://localhost:8000/ready   http://localhost:8000/docs
 ```
 
-The web UI (separate terminal):
+The web UI (separate terminal). The sample run works with no backend at all:
 
 ```bash
 cd frontend
@@ -127,14 +167,14 @@ uv run pytest -m integration         # needs docker compose up
 cd ../frontend
 npm run lint && npm run typecheck && npm test && npm run build
 npm run e2e                          # Playwright on the static build, no backend
+npm run media                        # re-record this README's GIF and screenshots
 ```
 
 ## Roadmap
 
 - [x] **Phase 0: Foundation.** Repo layout, Docker services, health/readiness, CI
 - [x] **Phase 1: RAG.** OpenAPI → API catalog, doc chunking, engineering playbook, search, retrieval eval
-- [ ] **Phase 2: Chat + deploy.** Router, chat path, SSE event bus, the UI, and a public
-  demo with continuous deployment from day one.
+- [x] **Phase 2: Chat + UI.** Router, chat path, SSE event bus, the UI, and deployment
   - [x] LLM layer with hard monthly spend caps; two-tier router and its eval (ADR 012, 013)
   - [x] Chat API: template and model replies, cited docs answers, run events over
     resumable SSE, rate limits (ADR 014)
@@ -142,57 +182,52 @@ npm run e2e                          # Playwright on the static build, no backen
     checks, sources, spec and decisions; a scripted sample run (ADR 015)
   - [x] Live-mode server: Docker images, a Lightsail stack with HTTPS, CD over SSH
     (ADR 016)
-  - [ ] Static public demo: the UI as static files on S3 + CloudFront, chat that says
-    when live mode is offline, Playwright tests in CI (ADR 017)
+  - [x] Showcase: the UI as a static build with an offline state, Playwright tests in
+    CI, and this README's media recorded from it by a script (ADR 017, 018)
 - [ ] **Phase 3: Sandbox + validation.** Docker sandbox, Prism mocks, and the deterministic
   checks (install, lint, types, grounding, tests, security), proven on hand-written good
   and bad code before any agent depends on them
 - [ ] **Phase 4: Agent graph + fix loop.** A thin slice first (analyst → researcher → coder →
   validator → diagnostician on one Stripe → Slack task), then the architect, contract
   compiler, test author, reviewer and packager
-- [ ] **Phase 5: Recorded real runs.** Export finished runs to the public demo in place of
-  the scripted sample; assumption overrides, run history
+- [ ] **Phase 5: Recorded real runs.** Load exported runs into the replay view, and
+  re-record this README from a real run in place of the scripted sample; assumption
+  overrides, run history
 - [ ] **Phase 6: Quality.** Memory, tracing, eval harness with ablations
 
 ## Deployment
 
-The demo is for people evaluating the project, who have a minute, not ten. So the public
-demo and live mode are deployed separately, both on AWS (ADR 016, 017):
+Nothing runs all the time, so the project costs nothing while nobody is using it
+(ADR 016, 018):
 
 ```
-Visitors ──► CloudFront ──► S3: static UI + recorded real runs        always on, ~$0/month
+Real use     ──► docker compose, locally: UI, API, Postgres + pgvector, Redis
 
-Live mode ──► Lightsail (on demand) ──► Caddy ─┬─► UI
-                                              └─► FastAPI + worker ─┬─► Postgres + pgvector
-                                                                    ├─► Redis
-                                                                    └─► Docker sandbox + Prism mocks
+Live mode    ──► Lightsail (on demand) ──► Caddy ─┬─► UI (static files)
+                                                  └─► FastAPI ─┬─► Postgres + pgvector
+                                                               └─► Redis
 ```
 
-- **Public demo:** the UI as static files on S3 behind CloudFront. It replays **recorded
-  real runs**: tasks run locally, with their event logs exported and played back through
-  the same view live mode uses. The scripted sample run stays, and is labeled as such.
-  No backend and no API keys, so it costs nothing and nothing can break.
-- **Live mode, on demand:** the full stack on one Lightsail instance with 2 GB of RAM
-  (~$12/month, billed by the hour). It's created for an interview or a live test and
-  deleted afterwards. A VM is needed because platform hosts can't run the Docker sandbox
-  that executes generated code. Setup and teardown are in
-  [infra/deploy/](infra/deploy/README.md), and the public demo's in
-  [infra/aws/](infra/aws/README.md).
 - **Real use:** the full stack runs locally with `docker compose`.
-- **Continuous deployment:** once CI passes on `main`, GitHub Actions publishes the
-  static UI to S3 through an IAM role it assumes with OIDC, so no AWS keys are stored in
-  GitHub. While the live server exists, Actions also pushes the images to GitHub
-  Container Registry and redeploys the server over SSH.
+- **Live mode, on demand:** the same stack on one Lightsail instance with 2 GB of RAM
+  (~$12/month, billed by the hour), created for an interview or a live test and deleted
+  afterwards. A VM, because platform hosts can't run the Docker sandbox that executes
+  generated code. Setup and teardown: [infra/deploy/](infra/deploy/README.md).
+- **Continuous deployment:** once CI passes on `main`, GitHub Actions builds both images
+  and pushes them to GitHub Container Registry. While the live server exists, it also
+  redeploys it over SSH.
 - **Spend limits:** a monthly cap in the Anthropic console, hard per-month caps in the
-  app (ADR 013), per-IP rate limits, and an AWS Budgets alert.
-- **Showcase:** a 1–2 minute demo video at the top of this README, the demo link, and
-  the eval results.
+  app (ADR 013), and per-IP rate limits.
+- **Showcase:** this README. Its media is generated from the static build
+  (`npm run media`), so it is re-recorded rather than hand-captured.
 
 ## Repository layout
 
 ```
-docs/                 Architecture, agent design, decision log, UI event contract
+docs/                 Architecture, agent design, decision log, UI event contract, README images
 frontend/             Next.js mission-control UI (see frontend/README.md)
+  e2e/                Playwright tests and the static server they run against
+  scripts/media.mjs   Records the README's GIF and screenshots
 backend/              Python backend (package: aidev)
   src/aidev/api/      FastAPI gateway: health, chat and run-event endpoints (SSE)
   src/aidev/chat/     Chat path: conversations, replies, docs answers, run creation
@@ -207,7 +242,6 @@ corpus/playbook/      Engineering playbook (indexed alongside provider docs)
 corpus/router/        Labeled example messages for the router's tier 0
 corpus/eval/          Golden sets for evaluation
 infra/postgres/       DB init scripts (pgvector)
-infra/aws/            Public demo stack: S3 + CloudFront + GitHub OIDC deploy role, runbook
 infra/deploy/         Live-mode compose stack, Caddyfile, VM scripts, runbook
-.github/workflows/    CI with end-to-end tests; deploys of the static demo and the VM
+.github/workflows/    CI with end-to-end tests; image builds and the live-mode deploy
 ```

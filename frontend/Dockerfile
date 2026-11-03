@@ -1,4 +1,4 @@
-# UI image for the live server: the static export (ADR 017) inside Caddy, which also
+# UI image for the live server: the static export (ADR 017, 018) inside Caddy, which also
 # terminates TLS and proxies /api to the backend (infra/deploy/Caddyfile, mounted by
 # compose). NEXT_PUBLIC_API_URL is left unset so the bundle calls /api on its own origin.
 

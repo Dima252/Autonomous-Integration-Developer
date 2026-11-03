@@ -1,8 +1,8 @@
 # Live-mode server on AWS Lightsail
 
 This is the server for **live mode**, and it's created on demand: for an interview or a
-live test, then deleted (ADR 016, 017). The public demo is static on S3 + CloudFront and
-doesn't need it.
+live test, then deleted (ADR 016, 018). There's no always-on public demo: the README is
+the showcase.
 
 The stack is one Lightsail instance running `docker compose`: the `web` container is
 Caddy holding the UI's static files, serving them at `/` and proxying `/api` to the API,

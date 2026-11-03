@@ -21,7 +21,8 @@ and what it costs us.
 | 014 | Chat path: one SSE response per message; run events on a resumable stream | Accepted |
 | 015 | Mission-control UI, built on the event contract before the agents exist | Accepted |
 | 016 | Hosting: one AWS Lightsail instance running docker compose, CD from GitHub | Amended by 017 |
-| 017 | Public demo: static replay of recorded real runs on S3 + CloudFront; live mode on demand | Accepted |
+| 017 | Public demo: static replay of recorded real runs on S3 + CloudFront; live mode on demand | Superseded in part by 018 |
+| 018 | Showcase: the README and the repo, no hosted demo | Accepted |
 
 ---
 
@@ -473,12 +474,12 @@ they will stream does (§5).
 - Monaco loads from a CDN on first use of the Code tab. That keeps the bundle small but
   adds a network dependency to that tab.
 - The sample run can drift from what the real agents do. It should be replaced by a
-  recorded real run once the agents produce one (ADR 017).
+  recorded real run once the agents produce one (ADR 017, 018).
 
 ## 016: Hosting: one AWS Lightsail instance running docker compose, CD from GitHub
 
-**Amended by ADR 017:** the instance now serves live mode only, and is created on demand.
-The always-on public demo is static.
+**Amended by ADR 017 and 018:** the instance now serves live mode only, and is created on
+demand. There is no always-on public demo; the README is the showcase.
 
 **Context.** The demo needs to be public, with HTTPS, and redeploy on every merge. Later
 phases also run generated code in a Docker sandbox, so the host must run Docker itself,
@@ -518,6 +519,9 @@ for image pulls and, from Phase 3, sandbox containers.
 
 ## 017: Public demo: static replay of recorded real runs on S3 + CloudFront; live mode on demand
 
+**Superseded in part by ADR 018:** nothing is hosted on S3 + CloudFront. The static
+export, the offline state, the Playwright tests and live mode on demand stay.
+
 **Context.** The hosted demo exists for recruiters and hiring managers, who give it about
 a minute. A live run takes several minutes, can fail in front of them, and spends API
 money on every visit. Only the owner runs real tasks, and does so locally. The UI already
@@ -556,8 +560,9 @@ free, and stays on AWS (ADR 016).
 - Recording needs no new format: it is the event log the UI already consumes.
 
 **Implementation notes** (2026-10-23).
-- The stack is [infra/aws/demo.yml](../infra/aws/demo.yml). CloudFront maps S3's 403
-  and 404 to the app's 404 page, so `/api/*` on the demo answers with an error page.
+- The stack was `infra/aws/demo.yml`, removed by ADR 018 (see commit `c08030a`).
+  CloudFront maps S3's 403 and 404 to the app's 404 page, so `/api/*` on the demo
+  answers with an error page.
   The UI calls `/health` once on load and counts only the API's own `{"status": "ok"}`
   as online.
 - The deploy role trusts tokens whose subject is `repo:<owner>/<repo>:ref:refs/heads/main`.
@@ -569,3 +574,41 @@ free, and stays on AWS (ADR 016).
 - No new AWS Budgets alert: the account's existing account-wide cost budgets cover the
   demo, and a third budget would be the first one billed.
 - Recorded real runs (Phase 5) aren't in yet: the first demo shows the scripted sample.
+
+## 018: Showcase: the README and the repo, no hosted demo
+
+**Context.** ADR 017 planned an always-on static demo on S3 + CloudFront. The template
+and the CD job were merged, but the stack was never executed. Before it was, the owner
+decided to share only the repository link. A hosted page would mostly replay the
+scripted sample, because recorded real runs don't exist until Phase 5, and it would add
+a cloud account, a deploy role and a publish job to keep working. People evaluating the
+project open the README first, and many never go further.
+
+**Decision.**
+- **The README is the showcase.** An animated walkthrough of a run in mission control
+  sits at the top, followed by a screenshot of each workspace view, the architecture,
+  and the measured numbers (router and retrieval evals, per-reply cost and latency).
+  Every image is labeled with what it shows: the scripted sample now, real runs once
+  Phase 5 records them.
+- **The media is generated, not hand-captured.** After a build, `npm run media` in
+  `frontend/` serves the static export, drives it with Playwright on a fake clock, and
+  writes the GIF and screenshots to `docs/images/`. Frames are taken at fixed
+  points on the run's timeline, so a re-record changes only what the UI changed.
+- **No public hosting.** `infra/aws/` and the Deploy workflow's `demo`
+  job are removed, and the unexecuted `aidev-demo` stack is deleted.
+- **Kept from ADR 017:** the static export (the live server's Caddy image serves it, and
+  the media is recorded from it), the "live mode offline" state for a UI running with no
+  API, the Playwright tests against the static build, and live mode on demand on
+  Lightsail (ADR 016).
+- **Recorded real runs (Phase 5)** load into the same replay view. They replace the
+  scripted sample in the README media, and are what an interview walks through.
+
+**Consequences.**
+- $0 a month and nothing hosted to keep up. No AWS credentials or OIDC role exist for
+  this project.
+- Visitors watch a run rather than drive one. A live session on the on-demand server
+  covers anyone who wants to try it.
+- The media goes stale as the UI changes. Re-running `npm run media` refreshes it, and
+  the diff in `docs/images/` shows what moved.
+- A GIF is limited to 256 colors and has no sound or captions, so it is kept short (one
+  run on the agent graph), and the details live in the still screenshots.
