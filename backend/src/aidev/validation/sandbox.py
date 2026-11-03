@@ -1,25 +1,28 @@
 """Runs the checks in Docker containers (ADR 009, 019), through the docker CLI.
 
-Each validation gets two fresh volumes: /work holds the workspace and is mounted
-read-only everywhere after it's filled, and /deps holds the installed requirements.
+Each validation gets fresh volumes: /work holds the workspace and is mounted read-only
+everywhere after it's filled, and /deps holds the installed requirements.
 Only the install step has a network, and it runs uv alone, with source builds
 disabled, so no code from a package runs while the network is up. Downloads go to one
 shared cache volume: only uv writes to it, and nothing in it ever runs. Every check
 then runs in its own container with no network, a read-only root, no capabilities, and
-memory, CPU and process limits.
+memory, CPU and process limits. The pytest check is the one exception to "no
+network": it joins an internal network whose only other members are the Prism mocks.
 """
 
 import asyncio
 import time
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass
 from typing import Protocol
 
-from aidev.validation.workspace import Workspace
+from aidev.validation.workspace import Workspace, tar_files
 
 LABEL = "aidev.validation"
+PRISM_IMAGE = "stoplight/prism:5.15.10"
+PRISM_PORT = 4010
 UV_CACHE = "aidev-sandbox-uv-cache"  # kept across validations; `prune` leaves it
 UID = "10001"  # the image's sandbox user
 DOCKER_FAILED = 125  # `docker run` exit code when Docker itself failed, not the command
@@ -39,9 +42,20 @@ class ExecResult:
 
 
 class Session(Protocol):
+    async def start_mocks(self, specs: Mapping[str, bytes]) -> dict[str, str]: ...
+
+    async def wait_mocks(self, timeout_s: float) -> None: ...
+
     async def install(self, timeout_s: float) -> ExecResult: ...
 
-    async def exec(self, argv: Sequence[str], timeout_s: float) -> ExecResult: ...
+    async def exec(
+        self,
+        argv: Sequence[str],
+        timeout_s: float,
+        *,
+        mocks: bool = False,
+        env: Mapping[str, str] | None = None,
+    ) -> ExecResult: ...
 
 
 class Sandbox(Protocol):
@@ -54,6 +68,7 @@ class Limits:
     cpus: float = 1.0
     pids: int = 256
     tmp: str = "256m"
+    mock_memory: str = "1g"
 
 
 async def docker(
@@ -118,6 +133,10 @@ class _DockerSession:
         self._id = run_id
         self._work = f"aidev-val-{run_id}-work"
         self._deps = f"aidev-val-{run_id}-deps"
+        self._specs = f"aidev-val-{run_id}-specs"
+        self._net = f"aidev-val-{run_id}-net"
+        self._mocks: dict[str, str] = {}  # provider -> container
+        self._has_net = False
         self._count = 0
 
     async def start(self, workspace: Workspace) -> None:
@@ -132,6 +151,57 @@ class _DockerSession:
         )
         _ok(r, "copying the workspace into the sandbox failed")
 
+    async def start_mocks(self, specs: Mapping[str, bytes]) -> dict[str, str]:
+        """Start a Prism mock per provider on an internal network: the mocks and the
+        pytest container can reach each other, and nothing else. Returns each mock's
+        URL without waiting for it; `wait_mocks` does that."""
+        if not specs:
+            return {}
+        label = f"{LABEL}={self._id}"
+        _ok(await docker("network", "create", "--internal", "--label", label, self._net))
+        self._has_net = True
+        _ok(await docker("volume", "create", "--label", label, self._specs))
+        tar = tar_files({f"{p}.json": spec for p, spec in specs.items()})
+        r = await self._run(
+            ["tar", "-x", "-C", "/specs"], mounts=[f"{self._specs}:/specs"], stdin=tar, timeout_s=60
+        )
+        _ok(r, "copying the mock specs into the sandbox failed")
+        lim = self._sandbox.limits
+        for provider in specs:
+            name = f"aidev-val-{self._id}-mock-{provider}"
+            args = [
+                "run", "-d", "--name", name, "--label", label,
+                "--network", self._net, "--network-alias", f"{provider}-mock",
+                "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
+                "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                "--memory", lim.mock_memory, "--memory-swap", lim.mock_memory,
+                "--pids-limit", str(lim.pids), "-v", f"{self._specs}:/specs:ro",
+                PRISM_IMAGE, "mock", "--multiprocess=false", "-h", "0.0.0.0",
+                f"/specs/{provider}.json",
+            ]  # fmt: skip
+            _ok(await docker(*args, timeout_s=300), f"starting the {provider} mock failed")
+            self._mocks[provider] = name
+        return {p: f"http://{p}-mock:{PRISM_PORT}" for p in specs}
+
+    async def wait_mocks(self, timeout_s: float) -> None:
+        deadline = time.monotonic() + timeout_s
+        waiting = dict(self._mocks)
+        while waiting:
+            for provider, name in list(waiting.items()):
+                logs = await docker("logs", name, timeout_s=30)
+                if "Prism is listening" in logs.stdout + logs.stderr:
+                    del waiting[provider]
+                    continue
+                state = await docker("inspect", "--format", "{{.State.Running}}", name)
+                if state.stdout.strip() != "true":
+                    tail = (logs.stdout + logs.stderr).strip()[-2000:]
+                    raise SandboxError(f"the {provider} mock exited: {tail}")
+            if not waiting:
+                break
+            if time.monotonic() > deadline:
+                raise SandboxError(f"mocks not ready after {timeout_s:.0f} s: {', '.join(waiting)}")
+            await asyncio.sleep(0.5)
+
     async def install(self, timeout_s: float) -> ExecResult:
         # uv runs from /tmp with --no-config, so a uv.toml or pyproject.toml in the
         # workspace can't change the index or re-enable builds.
@@ -143,15 +213,24 @@ class _DockerSession:
         return await self._run(
             argv,
             mounts=[f"{self._work}:/work:ro", f"{self._deps}:/deps", f"{UV_CACHE}:/uv-cache"],
-            network=True,
+            network="bridge",
             timeout_s=timeout_s,
         )
 
-    async def exec(self, argv: Sequence[str], timeout_s: float) -> ExecResult:
+    async def exec(
+        self,
+        argv: Sequence[str],
+        timeout_s: float,
+        *,
+        mocks: bool = False,
+        env: Mapping[str, str] | None = None,
+    ) -> ExecResult:
         return await self._run(
             argv,
             mounts=[f"{self._work}:/work:ro", f"{self._deps}:/deps:ro"],
             timeout_s=timeout_s,
+            network=self._net if mocks and self._mocks else "none",
+            env=env,
         )
 
     async def _run(
@@ -160,8 +239,9 @@ class _DockerSession:
         *,
         mounts: Sequence[str],
         timeout_s: float,
-        network: bool = False,
+        network: str = "none",
         stdin: bytes | None = None,
+        env: Mapping[str, str] | None = None,
     ) -> ExecResult:
         self._count += 1
         name = f"aidev-val-{self._id}-{self._count}"
@@ -172,10 +252,12 @@ class _DockerSession:
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--memory", lim.memory, "--memory-swap", lim.memory,
             "--cpus", str(lim.cpus), "--pids-limit", str(lim.pids),
-            "--network", "bridge" if network else "none",
+            "--network", network,
         ]  # fmt: skip
         if stdin is not None:
             args.append("-i")
+        for key, value in (env or {}).items():
+            args += ["-e", f"{key}={value}"]
         for mount in mounts:
             args += ["-v", mount]
         r = await docker(*args, self._sandbox.image, *argv, stdin=stdin, timeout_s=timeout_s)
@@ -191,7 +273,10 @@ class _DockerSession:
             if ids := ps.stdout.split():
                 await docker("rm", "-f", *ids, timeout_s=60)
         with suppress(Exception):
-            await docker("volume", "rm", "-f", self._work, self._deps, timeout_s=60)
+            await docker("volume", "rm", "-f", self._work, self._deps, self._specs, timeout_s=60)
+        if self._has_net:
+            with suppress(Exception):
+                await docker("network", "rm", self._net, timeout_s=60)
 
 
 def _ok(r: ExecResult, what: str = "docker failed") -> None:
@@ -210,4 +295,8 @@ async def prune() -> int:
     if names := vols.stdout.split():
         await docker("volume", "rm", "-f", *names)
         removed += len(names)
+    nets = await docker("network", "ls", "-q", "--filter", f"label={LABEL}")
+    if ids := nets.stdout.split():
+        await docker("network", "rm", *ids)
+        removed += len(ids)
     return removed

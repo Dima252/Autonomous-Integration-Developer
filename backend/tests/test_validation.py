@@ -1,7 +1,8 @@
 import io
 import json
+import re
 import tarfile
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 
 import pytest
@@ -9,8 +10,10 @@ import pytest
 from aidev.config import get_settings
 from aidev.validation.cases import apply, load_cases
 from aidev.validation.checks import (
-    Timeouts,
+    CheckContext,
+    ground,
     install,
+    parse_junit,
     parse_pyright,
     parse_ruff,
     parse_uv,
@@ -18,6 +21,7 @@ from aidev.validation.checks import (
 )
 from aidev.validation.models import Check, CheckResult, Failure, Status, trim
 from aidev.validation.sandbox import ExecResult, Session
+from aidev.validation.specs import MOCKS, ProviderApi, mock_spec, providers_for
 from aidev.validation.validator import Validator
 from aidev.validation.workspace import Workspace, WorkspaceError
 
@@ -33,7 +37,20 @@ class FakeSession:
         self.installs += 1
         return self._install
 
-    async def exec(self, argv: Sequence[str], timeout_s: float) -> ExecResult:
+    async def start_mocks(self, specs: Mapping[str, bytes]) -> dict[str, str]:
+        return {}
+
+    async def wait_mocks(self, timeout_s: float) -> None:
+        pass
+
+    async def exec(
+        self,
+        argv: Sequence[str],
+        timeout_s: float,
+        *,
+        mocks: bool = False,
+        env: Mapping[str, str] | None = None,
+    ) -> ExecResult:
         return ExecResult(0, "", "", 1)
 
 
@@ -47,7 +64,7 @@ class FakeSandbox:
 
 
 def fixed(check: Check, status: Status):
-    async def run(session: Session, workspace: Workspace, timeouts: Timeouts) -> CheckResult:
+    async def run(ctx: CheckContext) -> CheckResult:
         return CheckResult(check, status, f"{check} {status}")
 
     return run
@@ -156,19 +173,19 @@ def test_parse_uv_names_the_package(stderr: str, kind: str, message: str) -> Non
 async def test_install_rejects_bad_requirements_without_running_anything() -> None:
     session = FakeSession()
     ws = Workspace({"requirements.txt": "--index-url https://evil.example/simple\n"})
-    result = await install(session, ws, Timeouts())
+    result = await install(CheckContext(session, ws))
     assert result.status is Status.FAIL
     assert session.installs == 0
 
 
 async def test_install_needs_a_requirements_file() -> None:
-    result = await install(FakeSession(), Workspace({"app.py": ""}), Timeouts())
+    result = await install(CheckContext(FakeSession(), Workspace({"app.py": ""})))
     assert result.status is Status.FAIL and result.summary == "no requirements.txt"
 
 
 async def test_install_reports_a_timeout() -> None:
     session = FakeSession(ExecResult(-1, "", "", 180_000, timed_out=True))
-    result = await install(session, Workspace({"requirements.txt": "stripe\n"}), Timeouts())
+    result = await install(CheckContext(session, Workspace({"requirements.txt": "stripe\n"})))
     assert result.status is Status.FAIL
     assert result.failures[0].kind == "timeout"
 
@@ -268,3 +285,139 @@ def test_every_case_edit_applies_to_the_reference_solution() -> None:
     for case in cases:
         edited = apply(dict(base), case)
         assert (edited == base) == (not case.edits), case.name
+
+
+# --- grounding -----------------------------------------------------------------------
+
+STRIPE = ProviderApi(
+    "stripe",
+    ("https://api.stripe.com",),
+    (("GET", re.compile(r"^/v1/customers/[^/]+/?$")),),
+    frozenset({"invoice.paid", "invoice.payment_failed", "customer.created"}),
+)
+SLACK = ProviderApi(
+    "slack", ("https://slack.com/api",), (("POST", re.compile(r"^/chat\.postMessage/?$")),)
+)
+APP = """
+import os
+import httpx
+
+SLACK_API_URL = os.environ.get("SLACK_API_URL", "https://slack.com/api/")
+BASE: str = os.getenv("STRIPE_API_BASE") or "https://api.stripe.com"
+EVENTS = {"invoice.paid", "invoice.payment_faild"}
+
+def run(customer: str, kind: str) -> None:
+    httpx.post(f"{SLACK_API_URL}chat.postMessage", data={})
+    httpx.post(SLACK_API_URL + "chat.sendAlert")
+    httpx.get(f"{BASE}/v1/customers/{customer}?expand=x")
+    httpx.request("DELETE", f"{BASE}/v1/customers/{customer}")
+    httpx.get(f"{os.environ['HOST']}/anything")  # unresolvable: not checked
+    open("invoice.pdf")  # a dotted argument isn't an event
+    if kind == "customer.created" or kind == "customer.deleted_soon":
+        pass
+"""
+
+
+def test_grounding_resolves_urls_and_flags_what_the_catalog_lacks() -> None:
+    ws = Workspace({"app/main.py": APP, "tests/test_x.py": 'x = {"invoice.nope"}'})
+    failures, checked = ground(ws, {"stripe": STRIPE, "slack": SLACK})
+    assert checked == 8
+    assert sorted((f.kind, f.message, f.line) for f in failures) == [
+        ("unknown_event", "customer.deleted_soon isn't a Stripe event", 16),
+        ("unknown_event", "invoice.payment_faild isn't a Stripe event", 7),
+        ("unknown_operation", "DELETE /v1/customers/x isn't in the Stripe API", 13),
+        ("unknown_operation", "POST /chat.sendAlert isn't in the Slack API", 11),
+    ]
+
+
+def test_grounding_skips_code_that_does_not_parse() -> None:
+    failures, checked = ground(Workspace({"app.py": "def broken(:"}), {"stripe": STRIPE})
+    assert (failures, checked) == ([], 0)
+
+
+# --- pytest --------------------------------------------------------------------------
+
+VIOLATION = "Failed: the slack API spec doesn't allow POST /chat.postMessage: body: needs channel"
+JUNIT = f"""<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">
+<testcase classname="tests.test_webhook" name="test_ok" />
+<testcase classname="tests.test_webhook" name="test_alert">
+  <failure message="httpx.HTTPStatusError: 422 Unprocessable Entity">trace</failure>
+</testcase>
+<testcase classname="tests.test_webhook" name="test_alert">
+  <error message="failed on teardown with &quot;{VIOLATION}&quot;">x</error>
+</testcase>
+<testcase classname="tests.test_webhook" name="test_dedupe">
+  <failure message="assert 2 == 1">trace</failure>
+</testcase>
+</testsuite></testsuites>"""
+
+
+def test_junit_counts_each_test_once_and_prefers_the_contract_message() -> None:
+    total, failures = parse_junit(JUNIT)
+    assert total == 3
+    assert [(f.kind, f.location, f.message) for f in failures] == [
+        (
+            "api_contract",
+            "tests/test_webhook.py",
+            "test_alert: Failed: the slack API spec doesn't allow POST /chat.postMessage: "
+            "body: needs channel",
+        ),
+        ("test_failure", "tests/test_webhook.py", "test_dedupe: assert 2 == 1"),
+    ]
+
+
+# --- specs and mocks -----------------------------------------------------------------
+
+
+def test_providers_come_from_requirements_and_api_hosts() -> None:
+    ws = Workspace(
+        {
+            "requirements.txt": "Stripe==16.1.0\nslack_sdk>=3\n",
+            "app.py": 'URL = "https://api.github.com/repos"',
+        }
+    )
+    assert providers_for(ws) == ["stripe", "slack", "github"]
+    assert providers_for(Workspace({"requirements.txt": "fastapi\n"})) == []
+
+
+def test_mock_spec_keeps_requests_and_drops_response_schemas() -> None:
+    oas3 = {
+        "openapi": "3.0.0",
+        "paths": {
+            "/v1/customers": {
+                "post": {
+                    "requestBody": {"content": {"application/x-www-form-urlencoded": {}}},
+                    "responses": {"200": {"$ref": "#/components/responses/Customer"}},
+                }
+            }
+        },
+        "components": {"schemas": {"customer": {}}, "securitySchemes": {"bearer": {}}},
+        "webhooks": {"x": {}},
+    }
+    out = mock_spec(oas3, MOCKS["stripe"])
+    op = out["paths"]["/v1/customers"]["post"]
+    assert "requestBody" in op
+    assert op["responses"]["200"]["content"]["application/json"]["schema"] == {"type": "object"}
+    assert out["components"] == {"securitySchemes": {"bearer": {}}}
+    assert "webhooks" not in out and "schemas" in oas3["components"]  # the input is untouched
+
+
+def test_slack_mock_spec_drops_the_token_header_and_answers_ok() -> None:
+    swagger = {
+        "swagger": "2.0",
+        "paths": {
+            "/chat.postMessage": {
+                "post": {
+                    "parameters": [
+                        {"name": "token", "in": "header", "required": True},
+                        {"name": "channel", "in": "formData", "required": True},
+                    ],
+                    "responses": {"200": {"schema": {"$ref": "#/definitions/x"}}},
+                }
+            }
+        },
+        "definitions": {"x": {}},
+    }
+    op = mock_spec(swagger, MOCKS["slack"])["paths"]["/chat.postMessage"]["post"]
+    assert [p["name"] for p in op["parameters"]] == ["channel"]
+    assert op["responses"]["200"]["examples"] == {"application/json": {"ok": True}}

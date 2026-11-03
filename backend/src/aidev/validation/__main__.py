@@ -17,6 +17,7 @@ from aidev.config import Settings, get_settings
 from aidev.validation.cases import CaseResult, apply, format_results, load_cases
 from aidev.validation.models import CheckResult, Status
 from aidev.validation.sandbox import DockerSandbox, prune
+from aidev.validation.specs import SpecLibrary
 from aidev.validation.validator import Validator
 from aidev.validation.workspace import Workspace
 
@@ -33,8 +34,14 @@ def _build(settings: Settings) -> int:
     return subprocess.run(cmd, check=False).returncode
 
 
+def _validator(settings: Settings) -> Validator:
+    return Validator(
+        DockerSandbox(settings.sandbox_image), SpecLibrary(settings.data_dir / "specs")
+    )
+
+
 async def _run(settings: Settings, path: Path, verbose: bool) -> int:
-    validator = Validator(DockerSandbox(settings.sandbox_image))
+    validator = _validator(settings)
     report = await validator.validate(Workspace.from_dir(path), _print)
     if verbose:
         for r in report.results:
@@ -50,7 +57,7 @@ async def _eval(settings: Settings, only: str | None) -> int:
     root = settings.corpus_dir / "validation"
     base = Workspace.from_dir(root / "base").files
     cases = [c for c in load_cases(root / "cases.toml") if only in (None, c.name)]
-    validator = Validator(DockerSandbox(settings.sandbox_image))
+    validator = _validator(settings)
     results = []
     for case in cases:
         print(f"{case.name}: {case.description}")
