@@ -54,6 +54,34 @@ jobs:
       - name: Integration tests
         run: uv run pytest -m integration
 
+  # The validation sandbox against real Docker: its isolation, and the seeded-bug
+  # cases in corpus/validation/ (ADR 019).
+  sandbox:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv sync --locked
+
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the sandbox image
+        uses: docker/build-push-action@v6
+        with:
+          context: infra/sandbox
+          tags: aidev-sandbox:latest
+          load: true
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,mode=max,scope=sandbox
+
+      - name: Sandbox tests
+        run: uv run pytest -m sandbox -v
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

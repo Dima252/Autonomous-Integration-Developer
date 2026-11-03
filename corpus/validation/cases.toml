@@ -1,0 +1,72 @@
+# Seeded bugs for the validator (ADR 019). Each case is base/ plus small edits, and
+# `expect` lists exactly the checks that must fail. The rest must pass or be skipped.
+# Run them: uv run python -m aidev.validation eval   (from backend/; needs Docker)
+
+[[case]]
+name = "good"
+description = "The reference solution: every check passes"
+expect = []
+
+[[case]]
+name = "invented-package"
+description = "A dependency that doesn't exist on PyPI"
+expect = ["install"]
+edits = [
+  { path = "requirements.txt", append = "stripe-billing-webhooks-helper==2.1.0\n" },
+]
+
+[[case]]
+name = "unpinnable-version"
+description = "A release of a real package that was never published"
+expect = ["install"]
+edits = [
+  { path = "requirements.txt", old = "stripe==16.1.0", new = "stripe==99.0.0" },
+]
+
+[[case]]
+name = "index-override"
+description = "requirements.txt tries to install from another package index"
+expect = ["install"]
+edits = [
+  { path = "requirements.txt", append = "--extra-index-url https://pypi.example.com/simple\n" },
+]
+
+[[case]]
+name = "missing-dependency"
+description = "The code imports stripe but requirements.txt doesn't list it"
+expect = ["pyright"]
+edits = [
+  { path = "requirements.txt", old = "stripe==16.1.0\n", new = "" },
+]
+
+[[case]]
+name = "invented-sdk-method"
+description = "An SDK method that stripe-python doesn't have"
+expect = ["pyright"]
+edits = [
+  { path = "app/main.py", old = "stripe.Webhook.construct_event(", new = "stripe.Webhook.verify_and_parse(" },
+]
+
+[[case]]
+name = "stripe-object-as-dict"
+description = "Reads a Stripe object like a dict, which stripe-python 15+ rejects at run time"
+expect = ["pyright"]
+edits = [
+  { path = "app/main.py", old = "invoice = event.data.object.to_dict()", new = "invoice = event.data.object" },
+]
+
+[[case]]
+name = "unused-result"
+description = "The alert computes the amount, then never uses it"
+expect = ["ruff"]
+edits = [
+  { path = "app/slack.py", old = "({amount:.2f} {currency})", new = "({currency})" },
+]
+
+[[case]]
+name = "undefined-name"
+description = "A typo in a variable name: both linters see it"
+expect = ["ruff", "pyright"]
+edits = [
+  { path = "app/main.py", old = "seen_events.add(event.id)", new = "seen_event.add(event.id)" },
+]

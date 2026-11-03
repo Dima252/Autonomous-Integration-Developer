@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     anthropic_monthly_usd_cap: float = 5.0
     voyage_monthly_token_cap: int = 30_000_000
 
+    # Validation sandbox (docs/architecture.md §4, ADR 019). The image is built locally
+    # from infra/sandbox/ (`python -m aidev.validation build-image`).
+    sandbox_image: str = "aidev-sandbox:latest"
+    sandbox_dir: Path = REPO_ROOT / "infra" / "sandbox"
+
     # Chat API
     chat_rate_limit_per_minute: int = 20  # per client IP
     max_message_chars: int = 4000

@@ -30,8 +30,9 @@ on this page, from the router to the docs search and the evals, is built and mea
 | Small-talk routing | **~0.3 s** p50, against ~1.3 s for an LLM classifier on every message |
 | Docs retrieval | **Hit@8 0.98, MRR 0.92** on 66 queries; hybrid search measured *worse* and was rejected ([ADR 011](docs/decisions.md#011-docs-search-vector--reranker-by-default-bm25-as-fallback-chosen-by-eval)) |
 | Cost per reply | **$0** for small talk (~30 ms), **~$0.001** for a cited docs answer, **$0.11** per 1,000 routed messages |
+| Validator | **9 / 9** seeded bugs caught with no false alarms, **~4 s** per validation in a locked-down Docker sandbox ([ADR 019](docs/decisions.md#019-validation-sandbox-wheels-only-install-one-locked-down-container-per-check-a-seeded-bug-eval)) |
 | Spend safety | Hard monthly caps, checked before every paid call, abandoned streams included ([ADR 013](docs/decisions.md#013-spend-metering-with-hard-monthly-caps-on-anthropic-and-voyage)) |
-| Tests | Backend 120 unit + 17 integration, frontend 15 unit + Playwright end-to-end, all in CI |
+| Tests | Backend 142 unit + 17 integration + 12 sandbox, frontend 15 unit + Playwright end-to-end, all in CI |
 
 ## Inside a run
 
@@ -80,16 +81,20 @@ flowchart TD
   was chosen by eval, not by assumption.
 - **Streaming chat API.** Typed Server-Sent Events: the route, citations, the answer and
   its cost. Run events go through Redis Streams to a resumable stream.
+- **Validation sandbox.** Generated code is installed and checked in Docker containers
+  with no network, a read-only workspace, no capabilities and resource limits. Packages
+  install as wheels only, so no package code runs while the network is up. Ruff and
+  pyright, with the real Stripe and Slack SDKs installed, catch invented packages,
+  invented SDK methods and API misuse. A seeded-bug eval proves the checks work.
 - **Mission-control UI.** The live agent graph, a timeline, code with per-iteration
   diffs, checks, sources, and the spec and decisions. One reducer folds events for live
   mode and replays alike.
 
 **Designed, being built** ([roadmap](#roadmap))
-- **Self-healing loop.** Deterministic checks (dependency install, ruff, pyright against
-  the real SDKs, an endpoint grounding check, pytest against Prism mock servers with
-  signed webhook replays) run in a Docker sandbox with no network. A diagnostician finds
-  the root cause of each failure and routes it to a fix, more research, a replan, or a
-  question for the user. The loop keeps the best version so far and stops on budget or
+- **Self-healing loop.** The remaining checks are an endpoint grounding check, pytest
+  against Prism mock servers with signed webhook replays, and security scans. A
+  diagnostician finds the root cause of each failure and routes it to a fix, more
+  research, a replan, or a question for the user. The loop keeps the best version so far and stops on budget or
   when it stops making progress.
 - **Agents that learn.** At most one round of clarifying questions, everything else
   assumed and recorded. A curated engineering playbook covers idempotency, signatures,
@@ -98,7 +103,7 @@ flowchart TD
 Design docs:
 - [System architecture](docs/architecture.md): routing, RAG, validation, streaming, models, cost
 - [Agent architecture](docs/agent-architecture.md): agents, blackboard state, the mechanisms behind them
-- [Decision log](docs/decisions.md): 18 decisions with their context and trade-offs, for example:
+- [Decision log](docs/decisions.md): 19 decisions with their context and trade-offs, for example:
   a fixed workflow with LLM decision points instead of a free-form supervisor (001),
   catalog grounding instead of vector search alone (006), and acceptance tests written
   before the code and locked (007)
@@ -114,7 +119,8 @@ Design docs:
 | Frontend | Next.js (static export), TypeScript, Tailwind, React Flow, Monaco, Motion |
 | Testing | pytest, ruff, pyright, Vitest, Playwright, golden-set evals |
 | CI / CD | GitHub Actions, images on GHCR, Lightsail VM over SSH |
-| Planned | LangGraph (Phase 4), Docker sandbox + Prism mocks (Phase 3), Langfuse + OpenTelemetry (Phase 6) |
+| Sandbox | Docker (no network, read-only, wheels-only installs), ruff, pyright |
+| Planned | Prism mocks (Phase 3), LangGraph (Phase 4), Langfuse + OpenTelemetry (Phase 6) |
 
 ## Quickstart
 
@@ -133,6 +139,8 @@ uv run python -m aidev.rag embed     # embed it (needs VOYAGE_API_KEY; resumable
 uv run python -m aidev.rag search "verify a stripe webhook signature" --provider stripe
 uv run python -m aidev.router route "alert slack when a stripe dispute opens"  # needs ANTHROPIC_API_KEY
 uv run python -m aidev.llm usage     # month-to-date spend against the monthly caps
+uv run python -m aidev.validation build-image  # the sandbox image (needs Docker)
+uv run python -m aidev.validation eval         # the validator against its seeded bugs
 uv run uvicorn aidev.api.main:app --reload
 # http://localhost:8000/health   http://localhost:8000/ready   http://localhost:8000/docs
 ```
@@ -163,6 +171,7 @@ cd backend
 uv run ruff check . && uv run ruff format --check . && uv run pyright
 uv run pytest                        # unit tests
 uv run pytest -m integration         # needs docker compose up
+uv run pytest -m sandbox             # needs Docker and the sandbox image
 
 cd ../frontend
 npm run lint && npm run typecheck && npm test && npm run build
@@ -185,8 +194,11 @@ npm run media                        # re-record this README's GIF and screensho
   - [x] Showcase: the UI as a static build with an offline state, Playwright tests in
     CI, and this README's media recorded from it by a script (ADR 017, 018)
 - [ ] **Phase 3: Sandbox + validation.** Docker sandbox, Prism mocks, and the deterministic
-  checks (install, lint, types, grounding, tests, security), proven on hand-written good
-  and bad code before any agent depends on them
+  checks, proven on hand-written good and bad code before any agent depends on them
+  - [x] Sandbox: wheels-only install, one locked-down container per check; install,
+    ruff and pyright; a seeded-bug eval in CI (ADR 019)
+  - [ ] Prism mock servers, pytest with signed webhook replays, the grounding check
+  - [ ] Security checks (bandit, secret scan), more seeded bugs, numbers
 - [ ] **Phase 4: Agent graph + fix loop.** A thin slice first (analyst → researcher → coder →
   validator → diagnostician on one Stripe → Slack task), then the architect, contract
   compiler, test author, reviewer and packager
@@ -236,12 +248,15 @@ backend/              Python backend (package: aidev)
   src/aidev/rag/      Docs index: corpus, chunking, embeddings, BM25 + vector search, eval
   src/aidev/llm/      LLM client interface, Claude adapter, pricing, spend meter and caps
   src/aidev/router/   Two-tier router: rules, nearest neighbour, classifier, eval
+  src/aidev/validation/  Sandbox runner, checks, staged validator, seeded-bug eval
   src/aidev/infra/    Postgres / Redis clients
   migrations/         Alembic database migrations
 corpus/playbook/      Engineering playbook (indexed alongside provider docs)
 corpus/router/        Labeled example messages for the router's tier 0
 corpus/eval/          Golden sets for evaluation
+corpus/validation/    Reference solution and seeded bugs for the validator
 infra/postgres/       DB init scripts (pgvector)
+infra/sandbox/        Validation sandbox image: tools, ruff and pyright config
 infra/deploy/         Live-mode compose stack, Caddyfile, VM scripts, runbook
 .github/workflows/    CI with end-to-end tests; image builds and the live-mode deploy
 ```
