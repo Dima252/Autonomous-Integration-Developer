@@ -1,0 +1,14 @@
+# Lint for bugs, not style (ADR 019): a style nit would cost a fix iteration and change
+# nothing the user cares about.
+target-version = "py312"
+
+[lint]
+select = [
+    "E9",  # syntax errors
+    "F",   # pyflakes: undefined names, unused variables, redefinitions
+    "B",   # bugbear: mutable defaults, lost exceptions, loop-variable capture
+]
+ignore = [
+    "F401",  # unused imports change no behavior
+    "B008",  # FastAPI's Depends(...) defaults are the idiom
+]

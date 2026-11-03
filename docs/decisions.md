@@ -23,6 +23,7 @@ and what it costs us.
 | 016 | Hosting: one AWS Lightsail instance running docker compose, CD from GitHub | Amended by 017 |
 | 017 | Public demo: static replay of recorded real runs on S3 + CloudFront; live mode on demand | Superseded in part by 018 |
 | 018 | Showcase: the README and the repo, no hosted demo | Accepted |
+| 019 | Validation sandbox: wheels-only install, one locked-down container per check, a seeded-bug eval | Accepted |
 
 ---
 
@@ -612,3 +613,58 @@ project open the README first, and many never go further.
   the diff in `docs/images/` shows what moved.
 - A GIF is limited to 256 colors and has no sound or captions, so it is kept short (one
   run on the agent graph), and the details live in the still screenshots.
+
+## 019: Validation sandbox: wheels-only install, one locked-down container per check, a seeded-bug eval
+
+**Context.** ADR 009 chose a local Docker sandbox with no network. But the first check
+installs the code's requirements, which needs PyPI. Installing a package can run its
+own code (a source build), and a `requirements.txt` can redirect pip to another index.
+The fix loop (Phase 4) also needs results it can compare across iterations, and the
+validator has to be shown to work before any agent relies on its verdicts.
+
+**Decision.**
+- **Install with a network, but run nothing.** The install step is the only one with a
+  network. It runs `uv pip install --no-build --no-config` from `/tmp`, so source builds
+  are refused and a `uv.toml` in the workspace is ignored. Before it starts, the
+  requirements are parsed: pip options (`--index-url`, `-e`) and direct URLs fail the
+  check. Wheels go into a per-validation `/deps` volume, and downloads into one shared
+  cache volume that only uv writes to.
+- **Every check gets its own container.** No network, a read-only root, `/tmp` as the
+  only writable place, no capabilities, `no-new-privileges`, a non-root user, and limits
+  on memory (2 GB, no swap), CPU and processes. The workspace is mounted read-only, so
+  code can't edit its own tests. A timeout removes the container. One container per
+  check costs ~0.5 s each, and makes timeouts and clean state simple.
+- **The tools' configuration lives in the image** (`infra/sandbox/`), not the workspace,
+  so generated code can't loosen its own rules. The tools are pinned, and pyright brings
+  its own Node.js, so nothing is downloaded at check time.
+- **Ruff looks for bugs, not style:** syntax errors, pyflakes and bugbear, minus unused
+  imports and FastAPI's `Depends()` defaults. A style nit would cost a fix iteration
+  and change nothing the user cares about. Pyright runs in basic mode with the real
+  SDKs installed and counts errors only.
+- **Stages.** Install first. Then the static checks (ruff, pyright, and grounding from
+  3b) run together, so one iteration reports every static problem at once. Tests run only
+  when the static checks pass, because their failures would mostly repeat a type error.
+  Every later check is reported as skipped, with the reason.
+- **Failures are fingerprinted.** Check, rule and file, plus the message with numbers
+  and quoted names masked, and no line number. The same mistake keeps its fingerprint
+  when the code around it moves, which is what the fix loop's "failed the same way
+  twice" rule needs (agent-architecture.md §3.7).
+- **A seeded-bug eval proves it.** `corpus/validation/` holds a reference Stripe → Slack
+  solution and cases that each change it a little: an invented package, a version that
+  was never released, an index override, a missing dependency, an invented SDK method,
+  a Stripe object read as a dict, an unused result, and a typo in a name. A case passes
+  only when exactly the expected checks fail, so a false alarm counts against the
+  validator just like a missed bug does. `python -m aidev.validation eval` runs them,
+  and so does CI.
+
+**Consequences.**
+- 9 of 9 cases as expected. A validation takes ~4 s with a warm cache: install ~1–4 s,
+  pyright ~2.5 s, ruff ~0.5 s. Without a cache, install time depends on PyPI.
+- Packages without a Linux wheel can't be used. That's rare for API SDKs, and the check
+  says so clearly when it happens.
+- Running the validator means access to Docker, which is root on the host. That is
+  fine locally. The live server needs a restricted Docker API proxy before it runs agent
+  tasks.
+- The reference solution already caught a real API change: stripe-python 15+ objects
+  aren't dicts, so `.get()` fails at run time. Pyright flagged it before any test ran,
+  and it became a seeded case.

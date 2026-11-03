@@ -1,0 +1,9 @@
+{
+  "extraPaths": [
+    "/deps",
+    "/work"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none"
+}

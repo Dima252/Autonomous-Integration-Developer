@@ -193,7 +193,8 @@ The checks run in the sandbox, cheapest and most decisive first:
 | 5 | `semgrep` / `bandit`, secret scan | Security issues, hardcoded secrets |
 | 6 | LLM Reviewer (only once 1–5 pass) | Unmet requirements, playbook violations |
 
-The diagnose/fix loop that consumes these results is described in the agent doc.
+The sandbox's isolation, the install rules, the stages and the seeded-bug eval are in
+ADR 019. The diagnose/fix loop that consumes these results is described in the agent doc.
 
 ## 5. Streaming (R4)
 

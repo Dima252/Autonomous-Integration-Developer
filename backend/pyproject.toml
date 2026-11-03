@@ -42,8 +42,11 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-m 'not integration'"
-markers = ["integration: needs Postgres + Redis running (docker compose up -d)"]
+addopts = "-m 'not integration and not sandbox'"
+markers = [
+    "integration: needs Postgres + Redis running (docker compose up -d)",
+    "sandbox: needs Docker and the sandbox image (python -m aidev.validation build-image)",
+]
 
 [dependency-groups]
 dev = [
